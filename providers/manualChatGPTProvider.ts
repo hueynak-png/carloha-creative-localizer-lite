@@ -91,16 +91,19 @@ function generateCreatePrompt(request: GenerationRequest) {
   ].join("\n\n");
 }
 
+export function generatePromptForRequest(request: GenerationRequest) {
+  return request.workflowType === "localize_existing"
+    ? generateLocalizePrompt(request)
+    : generateCreatePrompt(request);
+}
+
 export const manualChatGPTProvider: GenerationProvider = {
   id: "manual_chatgpt_web",
   label: "Manual ChatGPT Web",
   mode: "manual",
   enabled: true,
   async generate(request) {
-    const prompt =
-      request.workflowType === "localize_existing"
-        ? generateLocalizePrompt(request)
-        : generateCreatePrompt(request);
+    const prompt = generatePromptForRequest(request);
 
     return {
       provider: "manual_chatgpt_web",

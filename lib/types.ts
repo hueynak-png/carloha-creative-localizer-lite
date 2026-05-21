@@ -31,7 +31,7 @@ export type CopyMode = "User Provided" | "Auto Generate";
 export type UploadedAsset = {
   id: string;
   name: string;
-  type: "original" | "face" | "reference" | "manual_result" | "preset";
+  type: "original" | "face" | "reference" | "manual_result" | "api_result" | "preset";
   url?: string;
   size?: number;
 };

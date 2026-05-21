@@ -1,5 +1,8 @@
 import { manualChatGPTProvider } from "@/providers/manualChatGPTProvider";
-import { openAIImageProvider } from "@/providers/openAIImageProvider";
+import {
+  isOpenAIImageProviderEnabled,
+  openAIImageProvider
+} from "@/providers/openAIImageProvider";
 import type { GenerationProvider, GenerationProviderId } from "@/lib/types";
 
 export const generationProviders: GenerationProvider[] = [
@@ -19,5 +22,5 @@ export function getGenerationProvider(id: GenerationProviderId = defaultGenerati
 }
 
 export function getActiveGenerationProvider() {
-  return manualChatGPTProvider;
+  return isOpenAIImageProviderEnabled() ? openAIImageProvider : manualChatGPTProvider;
 }

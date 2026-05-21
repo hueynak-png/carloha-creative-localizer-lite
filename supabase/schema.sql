@@ -80,15 +80,7 @@ create table public.localization_tasks (
   api_response jsonb,
   generated_images jsonb not null default '[]',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint v1_manual_provider check (
-    generation_mode = 'manual'
-    and generation_provider = 'manual_chatgpt_web'
-    and model_name is null
-    and quality_level is null
-    and estimated_cost is null
-    and api_response is null
-  )
+  updated_at timestamptz not null default now()
 );
 
 insert into public.scene_templates (name, is_default)

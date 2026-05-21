@@ -41,6 +41,7 @@ import {
   TEXT_HANDLING_MODE_OPTIONS
 } from "@/lib/constants";
 import { generationProviders, getActiveGenerationProvider } from "@/lib/generationProvider";
+import { isOpenAIImageProviderEnabled } from "@/providers/openAIImageProvider";
 import {
   getOptionLabel,
   getText,
@@ -345,18 +346,21 @@ function PrimaryButton({
   children,
   icon: Icon,
   onClick,
-  type = "button"
+  type = "button",
+  disabled
 }: {
   children: React.ReactNode;
   icon?: typeof Sparkles;
   onClick?: () => void;
   type?: "button" | "submit";
+  disabled?: boolean;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
-      className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md bg-carloha-red px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#981925]"
+      disabled={disabled}
+      className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md bg-carloha-red px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#981925] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {Icon ? <Icon size={17} /> : null}
       {children}
@@ -799,7 +803,10 @@ function ResultPage({
   const [copied, setCopied] = useState(false);
   const [copiedLogoId, setCopiedLogoId] = useState<string | null>(null);
   const [copiedLogoLinkId, setCopiedLogoLinkId] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const t = (key: TextKey) => getText(language, key);
+  const isApiProviderActive = isOpenAIImageProviderEnabled();
   const brandLogoAssets = "brand" in task.formSettings ? getBrandLogoAssets(task.formSettings.brand) : [];
   const allAssets = [
     task.uploadedOriginalPoster,
@@ -852,6 +859,62 @@ function ResultPage({
     globalThis.setTimeout(() => setCopiedLogoLinkId(null), 1400);
   }
 
+  async function generateImageInApp() {
+    setIsGeneratingImage(true);
+    setGenerationError(null);
+
+    try {
+      const response = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          prompt,
+          logoAssets: brandLogoAssets.map((asset) => ({
+            label: asset.label,
+            publicPath: asset.publicPath,
+            copyGuidance: asset.copyGuidance
+          }))
+        })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Image generation failed.");
+      }
+
+      const generatedImages: UploadedAsset[] = (data.images ?? []).map(
+        (image: { id: string; url: string }, index: number) => ({
+          id: image.id,
+          name: `api-generated-${index + 1}.png`,
+          type: "api_result",
+          url: image.url
+        })
+      );
+
+      if (!generatedImages.length) {
+        throw new Error("The image API returned no images.");
+      }
+
+      onTaskChange({
+        ...task,
+        generationMode: "api",
+        generationProvider: "openai_api",
+        status: "result_uploaded",
+        generatedImages: [...task.generatedImages, ...generatedImages],
+        apiResponse: data,
+        modelName: data.model ?? task.modelName,
+        qualityLevel: data.quality ?? task.qualityLevel,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      setGenerationError(error instanceof Error ? error.message : "Image generation failed.");
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
       <Panel
@@ -878,6 +941,64 @@ function ResultPage({
         </div>
       </Panel>
       <div className="space-y-6">
+        <Panel
+          title={t("apiImageGeneration")}
+          description={isApiProviderActive ? t("apiImageGenerationDesc") : t("apiProviderDisabled")}
+          action={
+            <PrimaryButton
+              icon={WandSparkles}
+              onClick={generateImageInApp}
+              disabled={!isApiProviderActive || isGeneratingImage}
+            >
+              {isGeneratingImage ? t("generatingImage") : t("generateImage")}
+            </PrimaryButton>
+          }
+        >
+          {generationError ? (
+            <div className="rounded-md border border-carloha-red/30 bg-carloha-red/10 px-3 py-2 text-sm text-ink">
+              <span className="font-semibold">{t("generationError")}:</span> {generationError}
+            </div>
+          ) : null}
+          {task.generatedImages.length ? (
+            <div className="mt-4 grid gap-3">
+              {task.generatedImages.map((asset) => (
+                <div key={asset.id} className="rounded-lg border border-black/10 bg-white p-3">
+                  {asset.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={asset.url}
+                      alt={asset.name}
+                      className="max-h-80 w-full rounded-md object-contain"
+                    />
+                  ) : null}
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{asset.name}</div>
+                      <div className="text-xs text-graphite/60">
+                        {task.selectedImageId === asset.id ? t("selectedResult") : t("apiGeneratedResult")}
+                      </div>
+                    </div>
+                    <SecondaryButton
+                      icon={BadgeCheck}
+                      onClick={() =>
+                        onTaskChange({
+                          ...task,
+                          selectedImageId: asset.id,
+                          status: "selected",
+                          updatedAt: new Date().toISOString()
+                        })
+                      }
+                    >
+                      {t("markAsSelected")}
+                    </SecondaryButton>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-graphite/70">{t("apiGeneratedImages")}</p>
+          )}
+        </Panel>
         <Panel title={t("manualResultUpload")} description={t("manualResultUploadDesc")}>
           <UploadBox language={language} title={t("generatedResultImages")} description={t("generatedResultDesc")} maxFiles={8} files={manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages} onFiles={syncResults} />
           <div className="mt-4 grid gap-3">
@@ -955,7 +1076,7 @@ function ResultPage({
           <div className="grid gap-2 text-sm">
             <InfoRow label={t("workflow")} value={getWorkflowLabel(language, task.workflowType)} />
             <InfoRow label={t("generationMode")} value={getOptionLabel(language, task.generationMode)} />
-            <InfoRow label={t("generationProvider")} value={getOptionLabel(language, "Manual ChatGPT Web")} />
+            <InfoRow label={t("generationProvider")} value={getOptionLabel(language, task.generationProvider)} />
             <InfoRow label={t("status")} value={getOptionLabel(language, task.status)} />
             {Object.entries(task.formSettings).map(([key, value]) => (
               <InfoRow key={key} label={key.replace(/([A-Z])/g, " $1")} value={getOptionLabel(language, String(value || "-"))} />
@@ -1019,7 +1140,7 @@ function HistoryPage({
             {tasks.length ? tasks.map((task) => (
               <tr key={task.id} className="border-t border-black/10">
                 <td className="px-4 py-3">{getWorkflowLabel(language, task.workflowType)}</td>
-                <td className="px-4 py-3">{getOptionLabel(language, "Manual ChatGPT Web")}</td>
+                <td className="px-4 py-3">{getOptionLabel(language, task.generationProvider)}</td>
                 <td className="px-4 py-3">{getOptionLabel(language, task.status)}</td>
                 <td className="px-4 py-3">{"brand" in task.formSettings ? getOptionLabel(language, task.formSettings.brand) : "-"}</td>
                 <td className="px-4 py-3">{new Date(task.updatedAt).toLocaleString()}</td>
@@ -1090,7 +1211,7 @@ function AdminSettings({ language }: { language: Language }) {
               )}
             >
               <div className="flex items-start gap-3">
-                <input type="radio" checked={provider.id === "manual_chatgpt_web"} disabled={!provider.enabled} readOnly className="mt-1" />
+                <input type="radio" checked={provider.enabled} disabled={!provider.enabled} readOnly className="mt-1" />
                 <div>
                   <div className="flex flex-wrap items-center gap-2 font-semibold text-ink">
                     {getOptionLabel(language, provider.label)}
