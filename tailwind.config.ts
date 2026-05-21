@@ -14,10 +14,11 @@ const config: Config = {
         linen: "#f7f3ea",
         graphite: "#2d3430",
         carloha: {
-          red: "#b51f2b",
-          gold: "#c6923a",
+          red: "#ff6b22",
+          orange: "#ff6b22",
+          gold: "#f5a041",
           leaf: "#1c6b55",
-          sky: "#dbeafe"
+          sky: "#fff1e8"
         }
       },
       boxShadow: {

@@ -23,7 +23,8 @@ import {
   Users,
   WandSparkles
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import {
   BRANDS,
   CLOTHING_STYLES,
@@ -39,6 +40,14 @@ import {
   TEXT_HANDLING_MODE_OPTIONS
 } from "@/lib/constants";
 import { generationProviders, getActiveGenerationProvider } from "@/lib/generationProvider";
+import {
+  getOptionLabel,
+  getText,
+  getWorkflowLabel,
+  languageLabels,
+  type Language,
+  type TextKey
+} from "@/lib/i18n";
 import type {
   Brand,
   ClothingStyle,
@@ -72,14 +81,14 @@ const currentUser = {
   role: "admin" as const
 };
 
-const navItems: Array<{ key: ViewKey; label: string; icon: typeof LayoutDashboard }> = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "localize", label: "Localize Existing Poster", icon: FileImage },
-  { key: "create", label: "Create New Poster", icon: WandSparkles },
-  { key: "history", label: "History", icon: History },
-  { key: "templates", label: "Templates", icon: Clipboard },
-  { key: "assets", label: "Assets", icon: Boxes },
-  { key: "admin", label: "Admin Settings", icon: Settings }
+const navItems: Array<{ key: ViewKey; labelKey: TextKey; icon: typeof LayoutDashboard }> = [
+  { key: "dashboard", labelKey: "dashboard", icon: LayoutDashboard },
+  { key: "localize", labelKey: "localizeExistingPoster", icon: FileImage },
+  { key: "create", labelKey: "createNewPoster", icon: WandSparkles },
+  { key: "history", labelKey: "history", icon: History },
+  { key: "templates", labelKey: "templates", icon: Clipboard },
+  { key: "assets", labelKey: "assets", icon: Boxes },
+  { key: "admin", labelKey: "adminSettings", icon: Settings }
 ];
 
 const initialLocalizeSettings: LocalizeExistingSettings = {
@@ -147,13 +156,15 @@ function SelectField<T extends string>({
   value,
   options,
   onChange,
-  disabledOptions = []
+  disabledOptions = [],
+  language
 }: {
   label: string;
   value: T;
   options: readonly T[];
   onChange: (value: T) => void;
   disabledOptions?: readonly T[];
+  language: Language;
 }) {
   return (
     <Field label={label}>
@@ -164,7 +175,7 @@ function SelectField<T extends string>({
       >
         {options.map((option) => (
           <option key={option} value={option} disabled={disabledOptions.includes(option)}>
-            {option}
+            {getOptionLabel(language, option)}
           </option>
         ))}
       </select>
@@ -320,7 +331,36 @@ function SecondaryButton({
   );
 }
 
+function LanguageToggle({
+  language,
+  onLanguageChange
+}: {
+  language: Language;
+  onLanguageChange: (language: Language) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-black/10 bg-white p-1" aria-label="Language selector">
+      {(["en", "zh"] as Language[]).map((item) => (
+        <button
+          key={item}
+          type="button"
+          onClick={() => onLanguageChange(item)}
+          aria-label={`Switch to ${item === "en" ? "English" : "Chinese"}`}
+          aria-pressed={language === item}
+          className={cn(
+            "focus-ring h-8 rounded px-3 text-xs font-semibold",
+            language === item ? "bg-carloha-red text-white" : "text-graphite hover:bg-linen"
+          )}
+        >
+          {languageLabels[item]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function CreativeLocalizerApp() {
+  const [language, setLanguage] = useState<Language>("en");
   const [view, setView] = useState<ViewKey>("dashboard");
   const [tasks, setTasks] = useState<LocalizationTask[]>([]);
   const [activeTask, setActiveTask] = useState<LocalizationTask | null>(null);
@@ -337,6 +377,19 @@ export function CreativeLocalizerApp() {
     if (currentUser.role === "admin") return tasks;
     return tasks.filter((task) => task.userId === currentUser.id);
   }, [tasks]);
+  const t = (key: TextKey) => getText(language, key);
+
+  useEffect(() => {
+    const savedLanguage = window.localStorage.getItem("carloha-localizer-language");
+    if (savedLanguage === "en" || savedLanguage === "zh") {
+      setLanguage(savedLanguage);
+    }
+  }, []);
+
+  function changeLanguage(nextLanguage: Language) {
+    setLanguage(nextLanguage);
+    window.localStorage.setItem("carloha-localizer-language", nextLanguage);
+  }
 
   async function createTask(workflowType: WorkflowType) {
     const provider = getActiveGenerationProvider();
@@ -367,15 +420,15 @@ export function CreativeLocalizerApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(135deg,#f8f3ea_0%,#eef5ef_48%,#f7f0e5_100%)]">
+    <div className="min-h-screen bg-[linear-gradient(135deg,#fff7f0_0%,#f7f3ea_48%,#fff1e8_100%)]">
       <aside className="fixed inset-y-0 left-0 z-10 hidden w-72 border-r border-black/10 bg-white/80 px-4 py-5 backdrop-blur lg:block">
         <div className="flex items-center gap-3 px-2">
-          <div className="grid h-10 w-10 place-items-center rounded-md bg-ink text-white">
-            <Sparkles size={19} />
+          <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-md bg-white">
+            <Image src="/logo.png" alt="Carloha Creative Localizer Lite logo" width={88} height={32} className="h-auto w-20" priority />
           </div>
           <div>
-            <div className="text-sm font-bold text-ink">Carloha Creative</div>
-            <div className="text-xs text-graphite/70">Localizer Lite</div>
+            <div className="text-sm font-bold text-ink">{t("brandLineOne")}</div>
+            <div className="text-xs text-graphite/70">{t("brandLineTwo")}</div>
           </div>
         </div>
         <nav className="mt-8 space-y-1">
@@ -393,18 +446,18 @@ export function CreativeLocalizerApp() {
                 )}
               >
                 <Icon size={17} />
-                {item.label}
+                {t(item.labelKey)}
               </button>
             );
           })}
         </nav>
         <div className="absolute bottom-5 left-4 right-4 rounded-lg border border-black/10 bg-linen p-3">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <BadgeCheck size={16} className="text-carloha-leaf" />
-            Manual v1
+            <BadgeCheck size={16} className="text-carloha-red" />
+            {t("manualV1")}
           </div>
           <p className="mt-1 text-xs leading-5 text-graphite/70">
-            No image API is called. Designers copy prompts and upload results manually.
+            {t("manualV1Desc")}
           </p>
         </div>
       </aside>
@@ -413,25 +466,29 @@ export function CreativeLocalizerApp() {
         <header className="sticky top-0 z-10 border-b border-black/10 bg-linen/85 px-5 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
             <div>
-              <h1 className="text-xl font-bold text-ink">Carloha Creative Localizer Lite</h1>
-              <p className="text-sm text-graphite/70">Internal poster localization workflow for the design team</p>
+              <h1 className="text-xl font-bold text-ink">{t("appTitle")}</h1>
+              <p className="text-sm text-graphite/70">{t("appSubtitle")}</p>
             </div>
-            <div className="hidden items-center gap-3 rounded-md border border-black/10 bg-white px-3 py-2 text-sm md:flex">
-              <Users size={16} className="text-carloha-leaf" />
+            <div className="flex items-center gap-3">
+              <LanguageToggle language={language} onLanguageChange={changeLanguage} />
+              <div className="hidden items-center gap-3 rounded-md border border-black/10 bg-white px-3 py-2 text-sm md:flex">
+              <Users size={16} className="text-carloha-red" />
               <span>{currentUser.name}</span>
               <span className="rounded bg-carloha-gold/15 px-2 py-1 text-xs font-semibold uppercase text-graphite">
-                {currentUser.role}
+                {getOptionLabel(language, currentUser.role === "admin" ? "Admin" : "User")}
               </span>
+              </div>
             </div>
           </div>
         </header>
 
         <div className="mx-auto max-w-7xl px-5 py-6">
           {view === "dashboard" ? (
-            <Dashboard tasks={visibleTasks} setView={setView} />
+            <Dashboard tasks={visibleTasks} setView={setView} language={language} />
           ) : null}
           {view === "localize" ? (
             <LocalizeForm
+              language={language}
               settings={localizeSettings}
               setSettings={setLocalizeSettings}
               originalPoster={originalPoster}
@@ -445,6 +502,7 @@ export function CreativeLocalizerApp() {
           ) : null}
           {view === "create" ? (
             <CreatePosterForm
+              language={language}
               settings={createSettings}
               setSettings={setCreateSettings}
               faceReferences={faceReferences}
@@ -456,6 +514,7 @@ export function CreativeLocalizerApp() {
           ) : null}
           {view === "result" && activeTask ? (
             <ResultPage
+              language={language}
               task={activeTask}
               manualResults={manualResults}
               setManualResults={setManualResults}
@@ -464,11 +523,11 @@ export function CreativeLocalizerApp() {
             />
           ) : null}
           {view === "history" ? (
-            <HistoryPage tasks={visibleTasks} onOpen={(task) => { setActiveTask(task); setView("result"); }} />
+            <HistoryPage language={language} tasks={visibleTasks} onOpen={(task) => { setActiveTask(task); setView("result"); }} />
           ) : null}
-          {view === "templates" ? <TemplatesPage /> : null}
-          {view === "assets" ? <AssetsPage /> : null}
-          {view === "admin" ? <AdminSettings /> : null}
+          {view === "templates" ? <TemplatesPage language={language} /> : null}
+          {view === "assets" ? <AssetsPage language={language} /> : null}
+          {view === "admin" ? <AdminSettings language={language} /> : null}
         </div>
       </main>
     </div>
@@ -500,36 +559,46 @@ function Panel({
   );
 }
 
-function Dashboard({ tasks, setView }: { tasks: LocalizationTask[]; setView: (view: ViewKey) => void }) {
+function Dashboard({
+  tasks,
+  setView,
+  language
+}: {
+  tasks: LocalizationTask[];
+  setView: (view: ViewKey) => void;
+  language: Language;
+}) {
+  const t = (key: TextKey) => getText(language, key);
   const selectedCount = tasks.filter((task) => task.status === "selected").length;
+  const stats: Array<[string, number, typeof LayoutDashboard]> = [
+    [t("totalTasks"), tasks.length, LayoutDashboard],
+    [t("manualPrompts"), tasks.filter((task) => task.generationMode === "manual").length, MessageSquareText],
+    [t("selectedResults"), selectedCount, BadgeCheck]
+  ];
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-3">
-        {[
-          ["Total tasks", tasks.length, LayoutDashboard],
-          ["Manual prompts", tasks.filter((task) => task.generationMode === "manual").length, MessageSquareText],
-          ["Selected results", selectedCount, BadgeCheck]
-        ].map(([label, value, Icon]) => (
+        {stats.map(([label, value, Icon]) => (
           <div key={String(label)} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-graphite/70">{String(label)}</span>
-              {typeof Icon !== "number" ? <Icon size={18} className="text-carloha-leaf" /> : null}
+              <Icon size={18} className="text-carloha-red" />
             </div>
             <div className="mt-3 text-3xl font-bold text-ink">{String(value)}</div>
           </div>
         ))}
       </div>
-      <Panel title="Start a workflow" description="Generate a production-ready prompt, then continue manually in ChatGPT.">
+      <Panel title={t("startWorkflow")} description={t("startWorkflowDesc")}>
         <div className="grid gap-4 md:grid-cols-2">
           <button onClick={() => setView("localize")} className="focus-ring rounded-lg border border-black/10 bg-linen p-5 text-left transition hover:border-carloha-red/40">
             <FileImage className="text-carloha-red" size={24} />
-            <h3 className="mt-4 font-bold text-ink">Localize Existing Poster</h3>
-            <p className="mt-2 text-sm leading-6 text-graphite/70">Upload a source poster and preserve vehicle, logo, text, composition, and layout hierarchy.</p>
+            <h3 className="mt-4 font-bold text-ink">{t("localizeExistingPoster")}</h3>
+            <p className="mt-2 text-sm leading-6 text-graphite/70">{t("localizeCardDesc")}</p>
           </button>
           <button onClick={() => setView("create")} className="focus-ring rounded-lg border border-black/10 bg-linen p-5 text-left transition hover:border-carloha-red/40">
             <WandSparkles className="text-carloha-red" size={24} />
-            <h3 className="mt-4 font-bold text-ink">Create New Poster</h3>
-            <p className="mt-2 text-sm leading-6 text-graphite/70">Build a campaign prompt from brand, goal, scene, copy, people mode, and localization settings.</p>
+            <h3 className="mt-4 font-bold text-ink">{t("createNewPoster")}</h3>
+            <p className="mt-2 text-sm leading-6 text-graphite/70">{t("createCardDesc")}</p>
           </button>
         </div>
       </Panel>
@@ -538,6 +607,7 @@ function Dashboard({ tasks, setView }: { tasks: LocalizationTask[]; setView: (vi
 }
 
 function LocalizeForm({
+  language,
   settings,
   setSettings,
   originalPoster,
@@ -548,6 +618,7 @@ function LocalizeForm({
   setAdditionalReferences,
   onGenerate
 }: {
+  language: Language;
   settings: LocalizeExistingSettings;
   setSettings: (settings: LocalizeExistingSettings) => void;
   originalPoster: UploadedAsset[];
@@ -558,30 +629,31 @@ function LocalizeForm({
   setAdditionalReferences: (assets: UploadedAsset[]) => void;
   onGenerate: () => void;
 }) {
+  const t = (key: TextKey) => getText(language, key);
   return (
     <Panel
-      title="Localize Existing Poster"
-      description="Use the uploaded source poster as the design anchor, then generate a manual ChatGPT prompt."
-      action={<PrimaryButton icon={Sparkles} onClick={onGenerate}>Generate Prompt</PrimaryButton>}
+      title={t("localizeExistingPoster")}
+      description={t("localizeDesc")}
+      action={<PrimaryButton icon={Sparkles} onClick={onGenerate}>{t("generatePrompt")}</PrimaryButton>}
     >
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField label="Brand" value={settings.brand} options={BRANDS} onChange={(brand: Brand) => setSettings({ ...settings, brand })} />
-          <TextInput label="Vehicle model" value={settings.vehicleModel} onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })} placeholder="e.g. Tiggo 8 Pro Max" />
-          <SelectField label="Scene template" value={settings.sceneTemplate} options={SCENE_TEMPLATES} onChange={(sceneTemplate) => setSettings({ ...settings, sceneTemplate })} />
-          <SelectField label="Localization level" value={settings.localizationLevel} options={LOCALIZATION_LEVEL_OPTIONS} onChange={(localizationLevel: LocalizationLevel) => setSettings({ ...settings, localizationLevel })} />
-          <SelectField label="Clothing style" value={settings.clothingStyle} options={CLOTHING_STYLES} onChange={(clothingStyle: ClothingStyle) => setSettings({ ...settings, clothingStyle })} />
-          <SelectField label="Poster ratio" value={settings.posterRatio} options={POSTER_RATIOS} onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })} />
-          <SelectField label="Text handling mode" value={settings.textHandlingMode} options={TEXT_HANDLING_MODE_OPTIONS} onChange={(textHandlingMode: TextHandlingMode) => setSettings({ ...settings, textHandlingMode })} />
-          <SelectField label="Face reference usage" value={settings.faceReferenceUsage} options={FACE_REFERENCE_USAGE} onChange={(faceReferenceUsage: FaceReferenceUsage) => setSettings({ ...settings, faceReferenceUsage })} />
+          <SelectField language={language} label={t("brand")} value={settings.brand} options={BRANDS} onChange={(brand: Brand) => setSettings({ ...settings, brand })} />
+          <TextInput label={t("vehicleModel")} value={settings.vehicleModel} onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })} placeholder="e.g. Tiggo 8 Pro Max" />
+          <SelectField language={language} label={t("sceneTemplate")} value={settings.sceneTemplate} options={SCENE_TEMPLATES} onChange={(sceneTemplate) => setSettings({ ...settings, sceneTemplate })} />
+          <SelectField language={language} label={t("localizationLevel")} value={settings.localizationLevel} options={LOCALIZATION_LEVEL_OPTIONS} onChange={(localizationLevel: LocalizationLevel) => setSettings({ ...settings, localizationLevel })} />
+          <SelectField language={language} label={t("clothingStyle")} value={settings.clothingStyle} options={CLOTHING_STYLES} onChange={(clothingStyle: ClothingStyle) => setSettings({ ...settings, clothingStyle })} />
+          <SelectField language={language} label={t("posterRatio")} value={settings.posterRatio} options={POSTER_RATIOS} onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })} />
+          <SelectField language={language} label={t("textHandlingMode")} value={settings.textHandlingMode} options={TEXT_HANDLING_MODE_OPTIONS} onChange={(textHandlingMode: TextHandlingMode) => setSettings({ ...settings, textHandlingMode })} />
+          <SelectField language={language} label={t("faceReferenceUsage")} value={settings.faceReferenceUsage} options={FACE_REFERENCE_USAGE} onChange={(faceReferenceUsage: FaceReferenceUsage) => setSettings({ ...settings, faceReferenceUsage })} />
           <div className="md:col-span-2">
-            <TextArea label="Extra instruction" value={settings.extraInstruction ?? ""} onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })} placeholder="Any special Nigerian market or campaign direction." />
+            <TextArea label={t("extraInstruction")} value={settings.extraInstruction ?? ""} onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })} placeholder={t("anyNigerianDirection")} />
           </div>
         </div>
         <div className="space-y-4">
-          <UploadBox title="Original poster image" description="Upload one source poster image." maxFiles={1} files={originalPoster} onFiles={(files) => setOriginalPoster(files.map((file) => ({ ...file, type: "original" })))} />
-          <UploadBox title="Face reference images" description="Upload up to 2 authorized face references." maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
-          <UploadBox title="Additional reference images" description="Upload up to 2 extra visual references." maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
+          <UploadBox title={t("originalPosterImage")} description={t("originalPosterDesc")} maxFiles={1} files={originalPoster} onFiles={(files) => setOriginalPoster(files.map((file) => ({ ...file, type: "original" })))} />
+          <UploadBox title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
+          <UploadBox title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
         </div>
       </div>
     </Panel>
@@ -589,6 +661,7 @@ function LocalizeForm({
 }
 
 function CreatePosterForm({
+  language,
   settings,
   setSettings,
   faceReferences,
@@ -597,6 +670,7 @@ function CreatePosterForm({
   setAdditionalReferences,
   onGenerate
 }: {
+  language: Language;
   settings: CreateNewSettings;
   setSettings: (settings: CreateNewSettings) => void;
   faceReferences: UploadedAsset[];
@@ -605,43 +679,44 @@ function CreatePosterForm({
   setAdditionalReferences: (assets: UploadedAsset[]) => void;
   onGenerate: () => void;
 }) {
+  const t = (key: TextKey) => getText(language, key);
   return (
     <Panel
-      title="Create New Poster"
-      description="Build a fresh poster prompt from a structured creative brief."
-      action={<PrimaryButton icon={Sparkles} onClick={onGenerate}>Generate Prompt</PrimaryButton>}
+      title={t("createNewPoster")}
+      description={t("createDesc")}
+      action={<PrimaryButton icon={Sparkles} onClick={onGenerate}>{t("generatePrompt")}</PrimaryButton>}
     >
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField label="Brand" value={settings.brand} options={BRANDS} onChange={(brand: Brand) => setSettings({ ...settings, brand })} />
-          <TextInput label="Vehicle model" value={settings.vehicleModel} onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })} placeholder="e.g. Tiggo 9 PHEV" />
-          <SelectField label="Poster goal" value={settings.posterGoal} options={POSTER_GOALS} onChange={(posterGoal: PosterGoal) => setSettings({ ...settings, posterGoal })} />
-          <SelectField label="Scene template" value={settings.sceneTemplate} options={SCENE_TEMPLATES} onChange={(sceneTemplate) => setSettings({ ...settings, sceneTemplate })} />
-          <SelectField label="Localization level" value={settings.localizationLevel} options={LOCALIZATION_LEVEL_OPTIONS} onChange={(localizationLevel: LocalizationLevel) => setSettings({ ...settings, localizationLevel })} />
-          <SelectField label="People mode" value={settings.peopleMode} options={PEOPLE_MODES} onChange={(peopleMode: PeopleMode) => setSettings({ ...settings, peopleMode })} />
-          <SelectField label="Clothing style" value={settings.clothingStyle} options={CLOTHING_STYLES} onChange={(clothingStyle: ClothingStyle) => setSettings({ ...settings, clothingStyle })} />
-          <SelectField label="Poster ratio" value={settings.posterRatio} options={POSTER_RATIOS} onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })} />
-          <SelectField label="Copy mode" value={settings.copyMode} options={COPY_MODES} onChange={(copyMode: CopyMode) => setSettings({ ...settings, copyMode })} />
-          <TextInput label="Main headline" value={settings.mainHeadline ?? ""} onChange={(mainHeadline) => setSettings({ ...settings, mainHeadline })} />
-          <TextInput label="Subheadline" value={settings.subheadline ?? ""} onChange={(subheadline) => setSettings({ ...settings, subheadline })} />
-          <TextInput label="CTA" value={settings.cta ?? ""} onChange={(cta) => setSettings({ ...settings, cta })} />
+          <SelectField language={language} label={t("brand")} value={settings.brand} options={BRANDS} onChange={(brand: Brand) => setSettings({ ...settings, brand })} />
+          <TextInput label={t("vehicleModel")} value={settings.vehicleModel} onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })} placeholder="e.g. Tiggo 9 PHEV" />
+          <SelectField language={language} label={t("posterGoal")} value={settings.posterGoal} options={POSTER_GOALS} onChange={(posterGoal: PosterGoal) => setSettings({ ...settings, posterGoal })} />
+          <SelectField language={language} label={t("sceneTemplate")} value={settings.sceneTemplate} options={SCENE_TEMPLATES} onChange={(sceneTemplate) => setSettings({ ...settings, sceneTemplate })} />
+          <SelectField language={language} label={t("localizationLevel")} value={settings.localizationLevel} options={LOCALIZATION_LEVEL_OPTIONS} onChange={(localizationLevel: LocalizationLevel) => setSettings({ ...settings, localizationLevel })} />
+          <SelectField language={language} label={t("peopleMode")} value={settings.peopleMode} options={PEOPLE_MODES} onChange={(peopleMode: PeopleMode) => setSettings({ ...settings, peopleMode })} />
+          <SelectField language={language} label={t("clothingStyle")} value={settings.clothingStyle} options={CLOTHING_STYLES} onChange={(clothingStyle: ClothingStyle) => setSettings({ ...settings, clothingStyle })} />
+          <SelectField language={language} label={t("posterRatio")} value={settings.posterRatio} options={POSTER_RATIOS} onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })} />
+          <SelectField language={language} label={t("copyMode")} value={settings.copyMode} options={COPY_MODES} onChange={(copyMode: CopyMode) => setSettings({ ...settings, copyMode })} />
+          <TextInput label={t("mainHeadline")} value={settings.mainHeadline ?? ""} onChange={(mainHeadline) => setSettings({ ...settings, mainHeadline })} />
+          <TextInput label={t("subheadline")} value={settings.subheadline ?? ""} onChange={(subheadline) => setSettings({ ...settings, subheadline })} />
+          <TextInput label={t("cta")} value={settings.cta ?? ""} onChange={(cta) => setSettings({ ...settings, cta })} />
           <div className="md:col-span-2">
-            <TextArea label="Extra description" value={settings.extraDescription ?? ""} onChange={(extraDescription) => setSettings({ ...settings, extraDescription })} placeholder="Optional free-text creative direction." />
+            <TextArea label={t("extraDescription")} value={settings.extraDescription ?? ""} onChange={(extraDescription) => setSettings({ ...settings, extraDescription })} placeholder={t("optionalCreativeDirection")} />
           </div>
           <div className="md:col-span-2">
-            <TextArea label="Extra instruction" value={settings.extraInstruction ?? ""} onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })} />
+            <TextArea label={t("extraInstruction")} value={settings.extraInstruction ?? ""} onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })} />
           </div>
         </div>
         <div className="space-y-4">
           <div className="rounded-lg border border-black/10 bg-carloha-gold/10 p-4 text-sm leading-6 text-graphite">
             <div className="mb-1 flex items-center gap-2 font-semibold text-ink">
               <Lock size={16} />
-              Mandatory compliance rule
+              {t("complianceRuleTitle")}
             </div>
             {COMPLIANCE_RULE}
           </div>
-          <UploadBox title="Face reference images" description="Upload up to 2 authorized face references." maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
-          <UploadBox title="Additional reference images" description="Upload up to 2 extra visual references." maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
+          <UploadBox title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
+          <UploadBox title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
         </div>
       </div>
     </Panel>
@@ -649,12 +724,14 @@ function CreatePosterForm({
 }
 
 function ResultPage({
+  language,
   task,
   manualResults,
   setManualResults,
   onTaskChange,
   onRegenerate
 }: {
+  language: Language;
   task: LocalizationTask;
   manualResults: UploadedAsset[];
   setManualResults: (assets: UploadedAsset[]) => void;
@@ -663,6 +740,7 @@ function ResultPage({
 }) {
   const [prompt, setPrompt] = useState(task.finalPrompt);
   const [copied, setCopied] = useState(false);
+  const t = (key: TextKey) => getText(language, key);
   const allAssets = [
     task.uploadedOriginalPoster,
     ...task.uploadedFaceReferenceImages,
@@ -689,12 +767,12 @@ function ResultPage({
   return (
     <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
       <Panel
-        title="Final Prompt"
-        description="Copy this into ChatGPT manually. The app does not automate ChatGPT web actions."
+        title={t("finalPrompt")}
+        description={t("finalPromptDesc")}
         action={
           <div className="flex flex-wrap gap-2">
-            <SecondaryButton icon={Copy} onClick={copyPrompt}>{copied ? "Copied" : "Copy Prompt"}</SecondaryButton>
-            <SecondaryButton icon={ChevronRight} onClick={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}>Open ChatGPT</SecondaryButton>
+            <SecondaryButton icon={Copy} onClick={copyPrompt}>{copied ? t("copied") : t("copyPrompt")}</SecondaryButton>
+            <SecondaryButton icon={ChevronRight} onClick={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}>{t("openChatGPT")}</SecondaryButton>
           </div>
         }
       >
@@ -707,19 +785,19 @@ function ResultPage({
           }}
         />
         <div className="mt-4 flex flex-wrap gap-2">
-          <SecondaryButton icon={Pencil}>Edit prompt</SecondaryButton>
-          <SecondaryButton icon={RefreshCcw} onClick={onRegenerate}>Regenerate prompt</SecondaryButton>
+          <SecondaryButton icon={Pencil}>{t("editPrompt")}</SecondaryButton>
+          <SecondaryButton icon={RefreshCcw} onClick={onRegenerate}>{t("regeneratePrompt")}</SecondaryButton>
         </div>
       </Panel>
       <div className="space-y-6">
-        <Panel title="Manual Result Upload" description="Upload final images generated outside this app.">
-          <UploadBox title="Generated result images" description="Upload one or more final outputs from ChatGPT." maxFiles={8} files={manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages} onFiles={syncResults} />
+        <Panel title={t("manualResultUpload")} description={t("manualResultUploadDesc")}>
+          <UploadBox title={t("generatedResultImages")} description={t("generatedResultDesc")} maxFiles={8} files={manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages} onFiles={syncResults} />
           <div className="mt-4 grid gap-3">
             {(manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages).map((asset) => (
               <div key={asset.id} className="flex items-center justify-between rounded-md border border-black/10 bg-linen p-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{asset.name}</div>
-                  <div className="text-xs text-graphite/60">{task.selectedImageId === asset.id ? "Selected result" : "Uploaded result"}</div>
+                  <div className="text-xs text-graphite/60">{task.selectedImageId === asset.id ? t("selectedResult") : t("uploadedResult")}</div>
                 </div>
                 <SecondaryButton
                   icon={BadgeCheck}
@@ -732,27 +810,27 @@ function ResultPage({
                     })
                   }
                 >
-                  Mark as selected
+                  {t("markAsSelected")}
                 </SecondaryButton>
               </div>
             ))}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <SecondaryButton icon={Download}>Download archived result</SecondaryButton>
+            <SecondaryButton icon={Download}>{t("downloadArchivedResult")}</SecondaryButton>
           </div>
         </Panel>
-        <Panel title="Task Settings">
+        <Panel title={t("taskSettings")}>
           <div className="grid gap-2 text-sm">
-            <InfoRow label="Workflow" value={task.workflowType === "localize_existing" ? "Localize Existing Poster" : "Create New Poster"} />
-            <InfoRow label="Generation mode" value={task.generationMode} />
-            <InfoRow label="Generation provider" value="Manual ChatGPT Web" />
-            <InfoRow label="Status" value={task.status} />
+            <InfoRow label={t("workflow")} value={getWorkflowLabel(language, task.workflowType)} />
+            <InfoRow label={t("generationMode")} value={getOptionLabel(language, task.generationMode)} />
+            <InfoRow label={t("generationProvider")} value={getOptionLabel(language, "Manual ChatGPT Web")} />
+            <InfoRow label={t("status")} value={getOptionLabel(language, task.status)} />
             {Object.entries(task.formSettings).map(([key, value]) => (
-              <InfoRow key={key} label={key.replace(/([A-Z])/g, " $1")} value={String(value || "-")} />
+              <InfoRow key={key} label={key.replace(/([A-Z])/g, " $1")} value={getOptionLabel(language, String(value || "-"))} />
             ))}
           </div>
         </Panel>
-        <Panel title="Uploaded Assets">
+        <Panel title={t("uploadedAssets")}>
           {allAssets.length ? (
             <div className="grid gap-2">
               {allAssets.map((asset) => (
@@ -764,7 +842,7 @@ function ResultPage({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-graphite/70">No uploaded assets attached.</p>
+            <p className="text-sm text-graphite/70">{t("noUploadedAssets")}</p>
           )}
         </Panel>
       </div>
@@ -781,36 +859,45 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function HistoryPage({ tasks, onOpen }: { tasks: LocalizationTask[]; onOpen: (task: LocalizationTask) => void }) {
+function HistoryPage({
+  language,
+  tasks,
+  onOpen
+}: {
+  language: Language;
+  tasks: LocalizationTask[];
+  onOpen: (task: LocalizationTask) => void;
+}) {
+  const t = (key: TextKey) => getText(language, key);
   return (
-    <Panel title="History" description="Admins can view all records. Users only see their own records.">
+    <Panel title={t("history")} description={t("historyDesc")}>
       <div className="overflow-hidden rounded-lg border border-black/10">
         <table className="w-full min-w-[760px] border-collapse bg-white text-left text-sm">
           <thead className="bg-ink text-white">
             <tr>
-              <th className="px-4 py-3">Workflow</th>
-              <th className="px-4 py-3">Provider</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Brand</th>
-              <th className="px-4 py-3">Updated</th>
-              <th className="px-4 py-3">Action</th>
+              <th className="px-4 py-3">{t("workflow")}</th>
+              <th className="px-4 py-3">{t("provider")}</th>
+              <th className="px-4 py-3">{t("status")}</th>
+              <th className="px-4 py-3">{t("brand")}</th>
+              <th className="px-4 py-3">{t("updated")}</th>
+              <th className="px-4 py-3">{t("action")}</th>
             </tr>
           </thead>
           <tbody>
             {tasks.length ? tasks.map((task) => (
               <tr key={task.id} className="border-t border-black/10">
-                <td className="px-4 py-3">{task.workflowType === "localize_existing" ? "Localize Existing" : "Create New"}</td>
-                <td className="px-4 py-3">Manual ChatGPT Web</td>
-                <td className="px-4 py-3">{task.status}</td>
-                <td className="px-4 py-3">{"brand" in task.formSettings ? task.formSettings.brand : "-"}</td>
+                <td className="px-4 py-3">{getWorkflowLabel(language, task.workflowType)}</td>
+                <td className="px-4 py-3">{getOptionLabel(language, "Manual ChatGPT Web")}</td>
+                <td className="px-4 py-3">{getOptionLabel(language, task.status)}</td>
+                <td className="px-4 py-3">{"brand" in task.formSettings ? getOptionLabel(language, task.formSettings.brand) : "-"}</td>
                 <td className="px-4 py-3">{new Date(task.updatedAt).toLocaleString()}</td>
                 <td className="px-4 py-3">
-                  <SecondaryButton icon={ChevronRight} onClick={() => onOpen(task)}>Open</SecondaryButton>
+                  <SecondaryButton icon={ChevronRight} onClick={() => onOpen(task)}>{t("open")}</SecondaryButton>
                 </td>
               </tr>
             )) : (
               <tr>
-                <td className="px-4 py-8 text-center text-graphite/60" colSpan={6}>No task history yet.</td>
+                <td className="px-4 py-8 text-center text-graphite/60" colSpan={6}>{t("noTaskHistory")}</td>
               </tr>
             )}
           </tbody>
@@ -820,14 +907,15 @@ function HistoryPage({ tasks, onOpen }: { tasks: LocalizationTask[]; onOpen: (ta
   );
 }
 
-function TemplatesPage() {
+function TemplatesPage({ language }: { language: Language }) {
+  const t = (key: TextKey) => getText(language, key);
   return (
-    <Panel title="Templates" description="Default scene templates are editable by admins in the Supabase-backed version.">
+    <Panel title={t("templates")} description={t("templatesDesc")}>
       <div className="grid gap-3 md:grid-cols-3">
         {SCENE_TEMPLATES.map((template) => (
           <div key={template} className="rounded-lg border border-black/10 bg-linen p-4">
-            <div className="font-semibold text-ink">{template}</div>
-            <p className="mt-2 text-sm leading-6 text-graphite/70">Default scene template for prompt construction.</p>
+            <div className="font-semibold text-ink">{getOptionLabel(language, template)}</div>
+            <p className="mt-2 text-sm leading-6 text-graphite/70">{t("templateDefaultDesc")}</p>
           </div>
         ))}
       </div>
@@ -835,14 +923,18 @@ function TemplatesPage() {
   );
 }
 
-function AssetsPage() {
-  const presets = ["Logo lockups", "Showroom backgrounds", "Vehicle cutouts", "Campaign textures", "Event references"];
+function AssetsPage({ language }: { language: Language }) {
+  const t = (key: TextKey) => getText(language, key);
+  const presets =
+    language === "zh"
+      ? ["Logo 组合", "展厅背景", "车辆抠图", "活动纹理", "活动参考"]
+      : ["Logo lockups", "Showroom backgrounds", "Vehicle cutouts", "Campaign textures", "Event references"];
   return (
-    <Panel title="Preset Assets" description="Reserved storage area for approved design assets and reusable references.">
+    <Panel title={t("presetAssets")} description={t("presetAssetsDesc")}>
       <div className="grid gap-3 md:grid-cols-5">
         {presets.map((preset) => (
           <div key={preset} className="rounded-lg border border-black/10 bg-white p-4">
-            <Archive className="text-carloha-leaf" size={20} />
+            <Archive className="text-carloha-red" size={20} />
             <div className="mt-3 text-sm font-semibold">{preset}</div>
           </div>
         ))}
@@ -851,10 +943,11 @@ function AssetsPage() {
   );
 }
 
-function AdminSettings() {
+function AdminSettings({ language }: { language: Language }) {
+  const t = (key: TextKey) => getText(language, key);
   return (
     <div className="space-y-6">
-      <Panel title="Generation Provider" description="Version 1 keeps generation manual while reserving the API provider path.">
+      <Panel title={t("generationProviderSetting")} description={t("generationProviderDesc")}>
         <div className="grid gap-3 md:grid-cols-2">
           {generationProviders.map((provider) => (
             <label
@@ -868,11 +961,11 @@ function AdminSettings() {
                 <input type="radio" checked={provider.id === "manual_chatgpt_web"} disabled={!provider.enabled} readOnly className="mt-1" />
                 <div>
                   <div className="flex flex-wrap items-center gap-2 font-semibold text-ink">
-                    {provider.label}
-                    {!provider.enabled ? <span className="rounded bg-black/10 px-2 py-1 text-xs">Disabled</span> : null}
+                    {getOptionLabel(language, provider.label)}
+                    {!provider.enabled ? <span className="rounded bg-black/10 px-2 py-1 text-xs">{t("disabled")}</span> : null}
                   </div>
                   <p className="mt-1 text-sm leading-6 text-graphite/70">
-                    {provider.helperText ?? "Default and only active provider in version 1."}
+                    {provider.helperText ? getOptionLabel(language, provider.helperText) : t("defaultOnlyProvider")}
                   </p>
                 </div>
               </div>
@@ -881,28 +974,28 @@ function AdminSettings() {
         </div>
       </Panel>
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="User Management" description="Admins can create users and assign Admin or User roles once Supabase auth is connected.">
+        <Panel title={t("userManagement")} description={t("userManagementDesc")}>
           <div className="grid gap-3 text-sm">
             {["admin@carloha.local", "designer@carloha.local", "reviewer@carloha.local"].map((email, index) => (
-              <InfoRow key={email} label={index === 0 ? "Admin" : "User"} value={email} />
+              <InfoRow key={email} label={getOptionLabel(language, index === 0 ? "Admin" : "User")} value={email} />
             ))}
           </div>
         </Panel>
-        <Panel title="System Prompts" description="Manage reusable prompt foundations and localization rules.">
+        <Panel title={t("systemPrompts")} description={t("systemPromptsDesc")}>
           <div className="rounded-md bg-linen p-4 text-sm leading-6">
-            <div className="font-semibold text-ink">Default compliance rule</div>
+            <div className="font-semibold text-ink">{t("defaultComplianceRule")}</div>
             <p className="mt-2 text-graphite/80">{COMPLIANCE_RULE}</p>
           </div>
         </Panel>
-        <Panel title="Preset Assets Management" description="Upload and approve brand-safe references for internal use.">
+        <Panel title={t("presetAssetsManagement")} description={t("presetAssetsManagementDesc")}>
           <div className="rounded-md border border-dashed border-black/20 bg-white p-5 text-sm text-graphite/70">
-            Supabase Storage bucket planned: <span className="font-semibold text-ink">preset-assets</span>
+            {t("storageBucketPlanned")} <span className="font-semibold text-ink">preset-assets</span>
           </div>
         </Panel>
-        <Panel title="Database Readiness" description="The schema includes future API fields while enforcing manual mode in v1.">
+        <Panel title={t("databaseReadiness")} description={t("databaseReadinessDesc")}>
           <div className="grid gap-2">
             {["generation_mode", "generation_provider", "model_name", "quality_level", "estimated_cost", "api_response", "generated_images"].map((field) => (
-              <InfoRow key={field} label="Field" value={field} />
+              <InfoRow key={field} label={t("field")} value={field} />
             ))}
           </div>
         </Panel>
