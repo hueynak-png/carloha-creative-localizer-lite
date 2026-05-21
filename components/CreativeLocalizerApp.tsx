@@ -1,102 +1,54 @@
 "use client";
 
 import {
-  Archive,
   BadgeCheck,
-  Boxes,
-  ChevronRight,
-  Clipboard,
+  ChevronLeft,
   Copy,
   Download,
   FileImage,
-  Gauge,
-  History,
+  Home,
   ImagePlus,
-  LayoutDashboard,
-  Lock,
-  MessageSquareText,
-  Pencil,
+  Loader2,
   RefreshCcw,
-  Settings,
   Sparkles,
   Upload,
-  Users,
   WandSparkles
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getBrandLogoAssets, type BrandLogoAsset } from "@/lib/brandAssets";
-import {
-  BRANDS,
-  CLOTHING_STYLES,
-  COMPLIANCE_RULE,
-  COPY_MODES,
-  FACE_REFERENCE_NOTICE,
-  FACE_REFERENCE_USAGE,
-  LOCALIZATION_LEVEL_OPTIONS,
-  PEOPLE_MODES,
-  POSTER_GOALS,
-  POSTER_RATIOS,
-  SCENE_TEMPLATES,
-  TEXT_HANDLING_MODE_OPTIONS
-} from "@/lib/constants";
-import { generationProviders, getActiveGenerationProvider } from "@/lib/generationProvider";
-import { isOpenAIImageProviderEnabled } from "@/providers/openAIImageProvider";
+import { BRANDS, POSTER_GOALS, POSTER_RATIOS } from "@/lib/constants";
+import { getActiveGenerationProvider } from "@/lib/generationProvider";
 import {
   getOptionLabel,
   getText,
-  getWorkflowLabel,
   languageLabels,
   type Language,
   type TextKey
 } from "@/lib/i18n";
+import { isOpenAIImageProviderEnabled } from "@/providers/openAIImageProvider";
 import type {
   Brand,
-  ClothingStyle,
-  CopyMode,
-  FaceReferenceUsage,
+  CreateNewSettings,
   LocalizationTask,
   LocalizeExistingSettings,
-  LocalizationLevel,
-  PeopleMode,
   PosterGoal,
   PosterRatio,
-  TextHandlingMode,
   UploadedAsset,
-  WorkflowType,
-  CreateNewSettings
+  WorkflowType
 } from "@/lib/types";
 
-type ViewKey =
-  | "dashboard"
-  | "localize"
-  | "create"
-  | "history"
-  | "templates"
-  | "assets"
-  | "admin"
-  | "result";
+type ViewKey = "home" | "localize" | "create" | "result";
 
 const currentUser = {
   id: "demo-admin",
-  name: "Carloha Design Admin",
-  role: "admin" as const
+  name: "Carloha Design Admin"
 };
-
-const navItems: Array<{ key: ViewKey; labelKey: TextKey; icon: typeof LayoutDashboard }> = [
-  { key: "dashboard", labelKey: "dashboard", icon: LayoutDashboard },
-  { key: "localize", labelKey: "localizeExistingPoster", icon: FileImage },
-  { key: "create", labelKey: "createNewPoster", icon: WandSparkles },
-  { key: "history", labelKey: "history", icon: History },
-  { key: "templates", labelKey: "templates", icon: Clipboard },
-  { key: "assets", labelKey: "assets", icon: Boxes },
-  { key: "admin", labelKey: "adminSettings", icon: Settings }
-];
 
 const initialLocalizeSettings: LocalizeExistingSettings = {
   brand: "Chery",
   vehicleModel: "",
-  sceneTemplate: "Urban Commute",
+  sceneTemplate: "Nigerian background localization",
   localizationLevel: "Medium",
   clothingStyle: "Business",
   posterRatio: "9:16",
@@ -139,16 +91,10 @@ function makeAssets(files: FileList | File[] | null, type: UploadedAsset["type"]
     }));
 }
 
-function Field({
-  label,
-  children
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="space-y-2">
-      <span className="text-sm font-medium text-graphite">{label}</span>
+      <span className="text-sm font-semibold text-ink">{label}</span>
       {children}
     </label>
   );
@@ -159,14 +105,12 @@ function SelectField<T extends string>({
   value,
   options,
   onChange,
-  disabledOptions = [],
   language
 }: {
   label: string;
   value: T;
   options: readonly T[];
   onChange: (value: T) => void;
-  disabledOptions?: readonly T[];
   language: Language;
 }) {
   return (
@@ -177,7 +121,7 @@ function SelectField<T extends string>({
         onChange={(event) => onChange(event.target.value as T)}
       >
         {options.map((option) => (
-          <option key={option} value={option} disabled={disabledOptions.includes(option)}>
+          <option key={option} value={option}>
             {getOptionLabel(language, option)}
           </option>
         ))}
@@ -213,19 +157,17 @@ function TextArea({
   label,
   value,
   onChange,
-  placeholder,
-  rows = 4
+  placeholder
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  rows?: number;
 }) {
   return (
     <Field label={label}>
       <textarea
-        rows={rows}
+        rows={4}
         className="focus-ring w-full resize-none rounded-md border border-black/10 bg-white px-3 py-3 text-sm leading-6"
         value={value}
         placeholder={placeholder}
@@ -235,21 +177,67 @@ function TextArea({
   );
 }
 
+function PrimaryButton({
+  children,
+  icon: Icon,
+  onClick,
+  disabled
+}: {
+  children: React.ReactNode;
+  icon?: typeof Sparkles;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md bg-carloha-red px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#d95718] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {Icon ? <Icon size={17} /> : null}
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  children,
+  icon: Icon,
+  onClick,
+  disabled
+}: {
+  children: React.ReactNode;
+  icon?: typeof Copy;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-ink transition hover:bg-linen disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      {Icon ? <Icon size={16} /> : null}
+      {children}
+    </button>
+  );
+}
+
 function UploadBox({
   title,
   description,
-  maxFiles,
   files,
+  maxFiles,
   onFiles,
-  notice,
   language
 }: {
   title: string;
   description: string;
-  maxFiles: number;
   files: UploadedAsset[];
+  maxFiles: number;
   onFiles: (files: UploadedAsset[]) => void;
-  notice?: string;
   language: Language;
 }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -295,10 +283,8 @@ function UploadBox({
         addFiles(pastedImages);
       }}
       className={cn(
-        "focus-ring rounded-lg border border-dashed p-4 transition",
-        isDragging
-          ? "border-carloha-red bg-carloha-sky shadow-soft"
-          : "border-black/20 bg-white/70"
+        "focus-ring rounded-lg border border-dashed p-5 transition",
+        isDragging ? "border-carloha-red bg-carloha-sky shadow-soft" : "border-black/20 bg-white"
       )}
     >
       <div className="flex items-start gap-3">
@@ -308,14 +294,9 @@ function UploadBox({
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink">{title}</div>
           <p className="mt-1 text-xs leading-5 text-graphite/70">{description}</p>
-          <p className="mt-2 rounded-md bg-white px-3 py-2 text-xs leading-5 text-graphite/70">
+          <p className="mt-2 rounded-md bg-linen px-3 py-2 text-xs leading-5 text-graphite/70">
             {isDragging ? t("uploadActiveHint") : t("uploadInteractionHint")}
           </p>
-          {notice ? (
-            <p className="mt-2 rounded-md bg-carloha-gold/10 px-3 py-2 text-xs leading-5 text-graphite">
-              {notice}
-            </p>
-          ) : null}
           <input
             type="file"
             accept="image/*"
@@ -342,56 +323,6 @@ function UploadBox({
   );
 }
 
-function PrimaryButton({
-  children,
-  icon: Icon,
-  onClick,
-  type = "button",
-  disabled
-}: {
-  children: React.ReactNode;
-  icon?: typeof Sparkles;
-  onClick?: () => void;
-  type?: "button" | "submit";
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md bg-carloha-red px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#981925] disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {Icon ? <Icon size={17} /> : null}
-      {children}
-    </button>
-  );
-}
-
-function SecondaryButton({
-  children,
-  icon: Icon,
-  onClick,
-  disabled
-}: {
-  children: React.ReactNode;
-  icon?: typeof Copy;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-ink transition hover:bg-linen disabled:cursor-not-allowed disabled:opacity-45"
-    >
-      {Icon ? <Icon size={16} /> : null}
-      {children}
-    </button>
-  );
-}
-
 function LanguageToggle({
   language,
   onLanguageChange
@@ -400,14 +331,12 @@ function LanguageToggle({
   onLanguageChange: (language: Language) => void;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-black/10 bg-white p-1" aria-label="Language selector">
+    <div className="inline-flex rounded-md border border-black/10 bg-white p-1">
       {(["en", "zh"] as Language[]).map((item) => (
         <button
           key={item}
           type="button"
           onClick={() => onLanguageChange(item)}
-          aria-label={`Switch to ${item === "en" ? "English" : "Chinese"}`}
-          aria-pressed={language === item}
           className={cn(
             "focus-ring h-8 rounded px-3 text-xs font-semibold",
             language === item ? "bg-carloha-red text-white" : "text-graphite hover:bg-linen"
@@ -420,25 +349,157 @@ function LanguageToggle({
   );
 }
 
+function PageShell({
+  language,
+  onLanguageChange,
+  children,
+  onHome
+}: {
+  language: Language;
+  onLanguageChange: (language: Language) => void;
+  children: React.ReactNode;
+  onHome: () => void;
+}) {
+  const t = (key: TextKey) => getText(language, key);
+
+  return (
+    <div className="min-h-screen bg-[linear-gradient(135deg,#fff7f0_0%,#f7f3ea_52%,#fff1e8_100%)]">
+      <header className="border-b border-black/10 bg-linen/90 px-5 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <button type="button" onClick={onHome} className="focus-ring flex items-center gap-3 rounded-md px-2 py-1 text-left">
+            <Image src="/logo.png" alt="Carloha" width={92} height={34} className="h-auto w-20" priority />
+            <div>
+              <h1 className="text-lg font-bold text-ink">{t("appTitle")}</h1>
+              <p className="hidden text-xs text-graphite/70 sm:block">{t("appSubtitle")}</p>
+            </div>
+          </button>
+          <div className="flex items-center gap-3">
+            <LanguageToggle language={language} onLanguageChange={onLanguageChange} />
+            <div className="hidden rounded-md border border-black/10 bg-white px-3 py-2 text-sm md:block">
+              {currentUser.name}
+            </div>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-5 py-7">{children}</main>
+    </div>
+  );
+}
+
+function LogoPicker({
+  brand,
+  language
+}: {
+  brand: Brand;
+  language: Language;
+}) {
+  const assets = getBrandLogoAssets(brand);
+  const emptyText =
+    language === "zh"
+      ? "当前品牌暂无专用 logo，生成时会保留清晰可编辑的品牌标识区域。"
+      : "No dedicated logo for this brand. The generation will preserve a clean editable brand mark area.";
+
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5">
+      <h3 className="font-bold text-ink">{language === "zh" ? "Logo 库" : "Logo Library"}</h3>
+      <p className="mt-1 text-sm leading-6 text-graphite/70">
+        {language === "zh"
+          ? "根据品牌自动选择 logo，并在生成时替换原图中的 logo。"
+          : "The logo is selected by brand and sent to the image API as a required reference."}
+      </p>
+      {assets.length ? (
+        <div className="mt-4 grid gap-3">
+          {assets.map((asset) => (
+            <div key={asset.id} className="rounded-lg border border-carloha-red/30 bg-carloha-red/5 p-3">
+              <div className={cn("grid min-h-24 place-items-center rounded-md border border-black/10 p-4", asset.previewClassName)}>
+                <Image
+                  src={asset.publicPath}
+                  alt={asset.label}
+                  width={420}
+                  height={120}
+                  className="max-h-20 w-auto max-w-full object-contain"
+                />
+              </div>
+              <p className="mt-3 text-xs leading-5 text-graphite/70">{asset.copyGuidance}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 rounded-md bg-linen p-3 text-sm text-graphite/70">{emptyText}</p>
+      )}
+    </section>
+  );
+}
+
+function HomeView({
+  language,
+  onOpen
+}: {
+  language: Language;
+  onOpen: (view: ViewKey) => void;
+}) {
+  const t = (key: TextKey) => getText(language, key);
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-xl border border-black/10 bg-white/85 p-6 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-ink">{t("appTitle")}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-graphite/70">
+              {language === "zh"
+                ? "一个更轻量的内部工具：选择任务，上传素材，直接生成。"
+                : "A lighter internal tool: choose a task, upload assets, and generate directly."}
+            </p>
+          </div>
+          <div className="rounded-full bg-carloha-red/10 px-3 py-1 text-xs font-semibold text-carloha-red">
+            {isOpenAIImageProviderEnabled() ? "API Mode" : "Manual Mode"}
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => onOpen("localize")}
+          className="focus-ring rounded-xl border border-black/10 bg-white p-6 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-carloha-red/40"
+        >
+          <FileImage className="text-carloha-red" size={28} />
+          <h3 className="mt-4 text-xl font-bold text-ink">{t("localizeExistingPoster")}</h3>
+          <p className="mt-2 text-sm leading-6 text-graphite/70">
+            {language === "zh"
+              ? "上传现有海报，只本地化人物和背景，保留文字编排、人物位置、车辆位置，并用 logo 库替换原 logo。"
+              : "Upload an existing poster, localize only people and background, preserve layout and vehicle placement, and replace the logo from the logo library."}
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onOpen("create")}
+          className="focus-ring rounded-xl border border-black/10 bg-white p-6 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-carloha-red/40"
+        >
+          <WandSparkles className="text-carloha-red" size={28} />
+          <h3 className="mt-4 text-xl font-bold text-ink">{t("createNewPoster")}</h3>
+          <p className="mt-2 text-sm leading-6 text-graphite/70">
+            {language === "zh"
+              ? "用少量选项快速生成新海报：品牌、目标、比例和核心文案。"
+              : "Generate a new poster with fewer options: brand, goal, ratio, and core copy."}
+          </p>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function CreativeLocalizerApp() {
   const [language, setLanguage] = useState<Language>("en");
-  const [view, setView] = useState<ViewKey>("dashboard");
-  const [tasks, setTasks] = useState<LocalizationTask[]>([]);
-  const [activeTask, setActiveTask] = useState<LocalizationTask | null>(null);
+  const [view, setView] = useState<ViewKey>("home");
+  const [task, setTask] = useState<LocalizationTask | null>(null);
   const [localizeSettings, setLocalizeSettings] =
     useState<LocalizeExistingSettings>(initialLocalizeSettings);
-  const [createSettings, setCreateSettings] =
-    useState<CreateNewSettings>(initialCreateSettings);
+  const [createSettings, setCreateSettings] = useState<CreateNewSettings>(initialCreateSettings);
   const [originalPoster, setOriginalPoster] = useState<UploadedAsset[]>([]);
-  const [faceReferences, setFaceReferences] = useState<UploadedAsset[]>([]);
-  const [additionalReferences, setAdditionalReferences] = useState<UploadedAsset[]>([]);
-  const [manualResults, setManualResults] = useState<UploadedAsset[]>([]);
-
-  const visibleTasks = useMemo(() => {
-    if (currentUser.role === "admin") return tasks;
-    return tasks.filter((task) => task.userId === currentUser.id);
-  }, [tasks]);
-  const t = (key: TextKey) => getText(language, key);
+  const [referenceImages, setReferenceImages] = useState<UploadedAsset[]>([]);
 
   useEffect(() => {
     const savedLanguage = window.localStorage.getItem("carloha-localizer-language");
@@ -454,410 +515,283 @@ export function CreativeLocalizerApp() {
 
   async function createTask(workflowType: WorkflowType) {
     const provider = getActiveGenerationProvider();
+    const settings = workflowType === "localize_existing" ? localizeSettings : createSettings;
     const result = await provider.generate({
       workflowType,
       userId: currentUser.id,
-      settings: workflowType === "localize_existing" ? localizeSettings : createSettings,
+      settings,
       originalPoster: originalPoster[0] ?? null,
-      faceReferences,
-      additionalReferences
+      faceReferences: [],
+      additionalReferences: referenceImages
     });
     const now = new Date().toISOString();
-    const task: LocalizationTask = {
+    setTask({
       id: `task-${Date.now()}`,
       ...result.taskDraft,
       createdAt: now,
       updatedAt: now
-    };
-    setTasks((items) => [task, ...items]);
-    setActiveTask(task);
-    setManualResults([]);
+    });
     setView("result");
   }
 
-  function updateActiveTask(nextTask: LocalizationTask) {
-    setActiveTask(nextTask);
-    setTasks((items) => items.map((task) => (task.id === nextTask.id ? nextTask : task)));
-  }
-
   return (
-    <div className="min-h-screen bg-[linear-gradient(135deg,#fff7f0_0%,#f7f3ea_48%,#fff1e8_100%)]">
-      <aside className="fixed inset-y-0 left-0 z-10 hidden w-72 border-r border-black/10 bg-white/80 px-4 py-5 backdrop-blur lg:block">
-        <div className="flex items-center gap-3 px-2">
-          <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-md bg-white">
-            <Image src="/logo.png" alt="Carloha Creative Localizer Lite logo" width={88} height={32} className="h-auto w-20" priority />
-          </div>
-          <div>
-            <div className="text-sm font-bold text-ink">{t("brandLineOne")}</div>
-            <div className="text-xs text-graphite/70">{t("brandLineTwo")}</div>
-          </div>
-        </div>
-        <nav className="mt-8 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.key}
-                onClick={() => setView(item.key)}
-                className={cn(
-                  "focus-ring flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition",
-                  view === item.key
-                    ? "bg-ink text-white"
-                    : "text-graphite hover:bg-linen hover:text-ink"
-                )}
-              >
-                <Icon size={17} />
-                {t(item.labelKey)}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="absolute bottom-5 left-4 right-4 rounded-lg border border-black/10 bg-linen p-3">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <BadgeCheck size={16} className="text-carloha-red" />
-            {t("manualV1")}
-          </div>
-          <p className="mt-1 text-xs leading-5 text-graphite/70">
-            {t("manualV1Desc")}
-          </p>
-        </div>
-      </aside>
-
-      <main className="lg:pl-72">
-        <header className="sticky top-0 z-10 border-b border-black/10 bg-linen/85 px-5 py-4 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold text-ink">{t("appTitle")}</h1>
-              <p className="text-sm text-graphite/70">{t("appSubtitle")}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <LanguageToggle language={language} onLanguageChange={changeLanguage} />
-              <div className="hidden items-center gap-3 rounded-md border border-black/10 bg-white px-3 py-2 text-sm md:flex">
-              <Users size={16} className="text-carloha-red" />
-              <span>{currentUser.name}</span>
-              <span className="rounded bg-carloha-gold/15 px-2 py-1 text-xs font-semibold uppercase text-graphite">
-                {getOptionLabel(language, currentUser.role === "admin" ? "Admin" : "User")}
-              </span>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <div className="mx-auto max-w-7xl px-5 py-6">
-          {view === "dashboard" ? (
-            <Dashboard tasks={visibleTasks} setView={setView} language={language} />
-          ) : null}
-          {view === "localize" ? (
-            <LocalizeForm
-              language={language}
-              settings={localizeSettings}
-              setSettings={setLocalizeSettings}
-              originalPoster={originalPoster}
-              setOriginalPoster={setOriginalPoster}
-              faceReferences={faceReferences}
-              setFaceReferences={setFaceReferences}
-              additionalReferences={additionalReferences}
-              setAdditionalReferences={setAdditionalReferences}
-              onGenerate={() => createTask("localize_existing")}
-            />
-          ) : null}
-          {view === "create" ? (
-            <CreatePosterForm
-              language={language}
-              settings={createSettings}
-              setSettings={setCreateSettings}
-              faceReferences={faceReferences}
-              setFaceReferences={setFaceReferences}
-              additionalReferences={additionalReferences}
-              setAdditionalReferences={setAdditionalReferences}
-              onGenerate={() => createTask("create_new")}
-            />
-          ) : null}
-          {view === "result" && activeTask ? (
-            <ResultPage
-              language={language}
-              task={activeTask}
-              manualResults={manualResults}
-              setManualResults={setManualResults}
-              onTaskChange={updateActiveTask}
-              onRegenerate={() => createTask(activeTask.workflowType)}
-            />
-          ) : null}
-          {view === "history" ? (
-            <HistoryPage language={language} tasks={visibleTasks} onOpen={(task) => { setActiveTask(task); setView("result"); }} />
-          ) : null}
-          {view === "templates" ? <TemplatesPage language={language} /> : null}
-          {view === "assets" ? <AssetsPage language={language} /> : null}
-          {view === "admin" ? <AdminSettings language={language} /> : null}
-        </div>
-      </main>
-    </div>
+    <PageShell language={language} onLanguageChange={changeLanguage} onHome={() => setView("home")}>
+      {view === "home" ? <HomeView language={language} onOpen={setView} /> : null}
+      {view === "localize" ? (
+        <LocalizeView
+          language={language}
+          settings={localizeSettings}
+          setSettings={setLocalizeSettings}
+          originalPoster={originalPoster}
+          setOriginalPoster={setOriginalPoster}
+          referenceImages={referenceImages}
+          setReferenceImages={setReferenceImages}
+          onGenerate={() => createTask("localize_existing")}
+          onBack={() => setView("home")}
+        />
+      ) : null}
+      {view === "create" ? (
+        <CreateView
+          language={language}
+          settings={createSettings}
+          setSettings={setCreateSettings}
+          referenceImages={referenceImages}
+          setReferenceImages={setReferenceImages}
+          onGenerate={() => createTask("create_new")}
+          onBack={() => setView("home")}
+        />
+      ) : null}
+      {view === "result" && task ? (
+        <ResultView
+          language={language}
+          task={task}
+          setTask={setTask}
+          referenceImages={referenceImages}
+          onBack={() => setView(task.workflowType === "localize_existing" ? "localize" : "create")}
+        />
+      ) : null}
+    </PageShell>
   );
 }
 
-function Panel({
-  title,
-  description,
-  children,
-  action
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border border-black/10 bg-white/82 p-5 shadow-soft">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-ink">{title}</h2>
-          {description ? <p className="mt-1 text-sm leading-6 text-graphite/70">{description}</p> : null}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Dashboard({
-  tasks,
-  setView,
-  language
-}: {
-  tasks: LocalizationTask[];
-  setView: (view: ViewKey) => void;
-  language: Language;
-}) {
-  const t = (key: TextKey) => getText(language, key);
-  const selectedCount = tasks.filter((task) => task.status === "selected").length;
-  const stats: Array<[string, number, typeof LayoutDashboard]> = [
-    [t("totalTasks"), tasks.length, LayoutDashboard],
-    [t("manualPrompts"), tasks.filter((task) => task.generationMode === "manual").length, MessageSquareText],
-    [t("selectedResults"), selectedCount, BadgeCheck]
-  ];
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        {stats.map(([label, value, Icon]) => (
-          <div key={String(label)} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-graphite/70">{String(label)}</span>
-              <Icon size={18} className="text-carloha-red" />
-            </div>
-            <div className="mt-3 text-3xl font-bold text-ink">{String(value)}</div>
-          </div>
-        ))}
-      </div>
-      <Panel title={t("startWorkflow")} description={t("startWorkflowDesc")}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <button onClick={() => setView("localize")} className="focus-ring rounded-lg border border-black/10 bg-linen p-5 text-left transition hover:border-carloha-red/40">
-            <FileImage className="text-carloha-red" size={24} />
-            <h3 className="mt-4 font-bold text-ink">{t("localizeExistingPoster")}</h3>
-            <p className="mt-2 text-sm leading-6 text-graphite/70">{t("localizeCardDesc")}</p>
-          </button>
-          <button onClick={() => setView("create")} className="focus-ring rounded-lg border border-black/10 bg-linen p-5 text-left transition hover:border-carloha-red/40">
-            <WandSparkles className="text-carloha-red" size={24} />
-            <h3 className="mt-4 font-bold text-ink">{t("createNewPoster")}</h3>
-            <p className="mt-2 text-sm leading-6 text-graphite/70">{t("createCardDesc")}</p>
-          </button>
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-function LocalizeForm({
+function LocalizeView({
   language,
   settings,
   setSettings,
   originalPoster,
   setOriginalPoster,
-  faceReferences,
-  setFaceReferences,
-  additionalReferences,
-  setAdditionalReferences,
-  onGenerate
+  referenceImages,
+  setReferenceImages,
+  onGenerate,
+  onBack
 }: {
   language: Language;
   settings: LocalizeExistingSettings;
   setSettings: (settings: LocalizeExistingSettings) => void;
   originalPoster: UploadedAsset[];
   setOriginalPoster: (assets: UploadedAsset[]) => void;
-  faceReferences: UploadedAsset[];
-  setFaceReferences: (assets: UploadedAsset[]) => void;
-  additionalReferences: UploadedAsset[];
-  setAdditionalReferences: (assets: UploadedAsset[]) => void;
+  referenceImages: UploadedAsset[];
+  setReferenceImages: (assets: UploadedAsset[]) => void;
   onGenerate: () => void;
+  onBack: () => void;
 }) {
   const t = (key: TextKey) => getText(language, key);
+
   return (
-    <Panel
-      title={t("localizeExistingPoster")}
-      description={t("localizeDesc")}
-      action={<PrimaryButton icon={Sparkles} onClick={onGenerate}>{t("generatePrompt")}</PrimaryButton>}
-    >
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="grid gap-4 md:grid-cols-2">
-          <SelectField language={language} label={t("brand")} value={settings.brand} options={BRANDS} onChange={(brand: Brand) => setSettings({ ...settings, brand })} />
-          <TextInput label={t("vehicleModel")} value={settings.vehicleModel} onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })} placeholder="e.g. Tiggo 8 Pro Max" />
-          <SelectField language={language} label={t("sceneTemplate")} value={settings.sceneTemplate} options={SCENE_TEMPLATES} onChange={(sceneTemplate) => setSettings({ ...settings, sceneTemplate })} />
-          <SelectField language={language} label={t("localizationLevel")} value={settings.localizationLevel} options={LOCALIZATION_LEVEL_OPTIONS} onChange={(localizationLevel: LocalizationLevel) => setSettings({ ...settings, localizationLevel })} />
-          <SelectField language={language} label={t("clothingStyle")} value={settings.clothingStyle} options={CLOTHING_STYLES} onChange={(clothingStyle: ClothingStyle) => setSettings({ ...settings, clothingStyle })} />
-          <SelectField language={language} label={t("posterRatio")} value={settings.posterRatio} options={POSTER_RATIOS} onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })} />
-          <SelectField language={language} label={t("textHandlingMode")} value={settings.textHandlingMode} options={TEXT_HANDLING_MODE_OPTIONS} onChange={(textHandlingMode: TextHandlingMode) => setSettings({ ...settings, textHandlingMode })} />
-          <SelectField language={language} label={t("faceReferenceUsage")} value={settings.faceReferenceUsage} options={FACE_REFERENCE_USAGE} onChange={(faceReferenceUsage: FaceReferenceUsage) => setSettings({ ...settings, faceReferenceUsage })} />
-          <div className="md:col-span-2">
-            <TextArea label={t("extraInstruction")} value={settings.extraInstruction ?? ""} onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })} placeholder={t("anyNigerianDirection")} />
+    <div className="space-y-5">
+      <SecondaryButton icon={ChevronLeft} onClick={onBack}>
+        {language === "zh" ? "返回首页" : "Back home"}
+      </SecondaryButton>
+      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="rounded-xl border border-black/10 bg-white p-6 shadow-soft">
+          <h2 className="text-xl font-bold text-ink">{t("localizeExistingPoster")}</h2>
+          <p className="mt-2 text-sm leading-6 text-graphite/70">
+            {language === "zh"
+              ? "统一规则：保留所有文字编排、人物位置和车辆位置；仅把人物改为黑人、不展示清晰正脸，并把背景改成能体现尼日利亚特色。"
+              : "Single rule: preserve all typography, people placement, and vehicle placement; only change people to Black people without clear front-facing faces, and localize the background to Nigeria."}
+          </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <SelectField
+              language={language}
+              label={t("brand")}
+              value={settings.brand}
+              options={BRANDS}
+              onChange={(brand: Brand) => setSettings({ ...settings, brand })}
+            />
+            <SelectField
+              language={language}
+              label={t("posterRatio")}
+              value={settings.posterRatio}
+              options={POSTER_RATIOS}
+              onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })}
+            />
+            <div className="md:col-span-2">
+              <TextArea
+                label={t("extraInstruction")}
+                value={settings.extraInstruction ?? ""}
+                onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })}
+                placeholder={language === "zh" ? "可选：补充希望保留或避免的细节。" : "Optional: add details to preserve or avoid."}
+              />
+            </div>
           </div>
-        </div>
-        <div className="space-y-4">
-          <UploadBox language={language} title={t("originalPosterImage")} description={t("originalPosterDesc")} maxFiles={1} files={originalPoster} onFiles={(files) => setOriginalPoster(files.map((file) => ({ ...file, type: "original" })))} />
-          <UploadBox language={language} title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
-          <UploadBox language={language} title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
-        </div>
+          <div className="mt-5 grid gap-4">
+            <UploadBox
+              language={language}
+              title={t("originalPosterImage")}
+              description={language === "zh" ? "上传 1 张需要本地化的原始海报。" : "Upload one poster to localize."}
+              maxFiles={1}
+              files={originalPoster}
+              onFiles={(files) => setOriginalPoster(files.map((file) => ({ ...file, type: "original" })))}
+            />
+            <UploadBox
+              language={language}
+              title={t("additionalReferenceImages")}
+              description={language === "zh" ? "可选：上传最多 2 张风格或场景参考图。" : "Optional: upload up to 2 style or scene references."}
+              maxFiles={2}
+              files={referenceImages}
+              onFiles={setReferenceImages}
+            />
+          </div>
+          <div className="mt-5">
+            <PrimaryButton icon={Sparkles} onClick={onGenerate} disabled={!originalPoster.length}>
+              {isOpenAIImageProviderEnabled()
+                ? language === "zh"
+                  ? "开始本地化"
+                  : "Start localization"
+                : t("generatePrompt")}
+            </PrimaryButton>
+          </div>
+        </section>
+        <LogoPicker brand={settings.brand} language={language} />
       </div>
-    </Panel>
+    </div>
   );
 }
 
-function CreatePosterForm({
+function CreateView({
   language,
   settings,
   setSettings,
-  faceReferences,
-  setFaceReferences,
-  additionalReferences,
-  setAdditionalReferences,
-  onGenerate
+  referenceImages,
+  setReferenceImages,
+  onGenerate,
+  onBack
 }: {
   language: Language;
   settings: CreateNewSettings;
   setSettings: (settings: CreateNewSettings) => void;
-  faceReferences: UploadedAsset[];
-  setFaceReferences: (assets: UploadedAsset[]) => void;
-  additionalReferences: UploadedAsset[];
-  setAdditionalReferences: (assets: UploadedAsset[]) => void;
+  referenceImages: UploadedAsset[];
+  setReferenceImages: (assets: UploadedAsset[]) => void;
   onGenerate: () => void;
+  onBack: () => void;
 }) {
   const t = (key: TextKey) => getText(language, key);
+
   return (
-    <Panel
-      title={t("createNewPoster")}
-      description={t("createDesc")}
-      action={<PrimaryButton icon={Sparkles} onClick={onGenerate}>{t("generatePrompt")}</PrimaryButton>}
-    >
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="grid gap-4 md:grid-cols-2">
-          <SelectField language={language} label={t("brand")} value={settings.brand} options={BRANDS} onChange={(brand: Brand) => setSettings({ ...settings, brand })} />
-          <TextInput label={t("vehicleModel")} value={settings.vehicleModel} onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })} placeholder="e.g. Tiggo 9 PHEV" />
-          <SelectField language={language} label={t("posterGoal")} value={settings.posterGoal} options={POSTER_GOALS} onChange={(posterGoal: PosterGoal) => setSettings({ ...settings, posterGoal })} />
-          <SelectField language={language} label={t("sceneTemplate")} value={settings.sceneTemplate} options={SCENE_TEMPLATES} onChange={(sceneTemplate) => setSettings({ ...settings, sceneTemplate })} />
-          <SelectField language={language} label={t("localizationLevel")} value={settings.localizationLevel} options={LOCALIZATION_LEVEL_OPTIONS} onChange={(localizationLevel: LocalizationLevel) => setSettings({ ...settings, localizationLevel })} />
-          <SelectField language={language} label={t("peopleMode")} value={settings.peopleMode} options={PEOPLE_MODES} onChange={(peopleMode: PeopleMode) => setSettings({ ...settings, peopleMode })} />
-          <SelectField language={language} label={t("clothingStyle")} value={settings.clothingStyle} options={CLOTHING_STYLES} onChange={(clothingStyle: ClothingStyle) => setSettings({ ...settings, clothingStyle })} />
-          <SelectField language={language} label={t("posterRatio")} value={settings.posterRatio} options={POSTER_RATIOS} onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })} />
-          <SelectField language={language} label={t("copyMode")} value={settings.copyMode} options={COPY_MODES} onChange={(copyMode: CopyMode) => setSettings({ ...settings, copyMode })} />
-          <TextInput label={t("mainHeadline")} value={settings.mainHeadline ?? ""} onChange={(mainHeadline) => setSettings({ ...settings, mainHeadline })} />
-          <TextInput label={t("subheadline")} value={settings.subheadline ?? ""} onChange={(subheadline) => setSettings({ ...settings, subheadline })} />
-          <TextInput label={t("cta")} value={settings.cta ?? ""} onChange={(cta) => setSettings({ ...settings, cta })} />
-          <div className="md:col-span-2">
-            <TextArea label={t("extraDescription")} value={settings.extraDescription ?? ""} onChange={(extraDescription) => setSettings({ ...settings, extraDescription })} placeholder={t("optionalCreativeDirection")} />
-          </div>
-          <div className="md:col-span-2">
-            <TextArea label={t("extraInstruction")} value={settings.extraInstruction ?? ""} onChange={(extraInstruction) => setSettings({ ...settings, extraInstruction })} />
-          </div>
-        </div>
-        <div className="space-y-4">
-          <div className="rounded-lg border border-black/10 bg-carloha-gold/10 p-4 text-sm leading-6 text-graphite">
-            <div className="mb-1 flex items-center gap-2 font-semibold text-ink">
-              <Lock size={16} />
-              {t("complianceRuleTitle")}
+    <div className="space-y-5">
+      <SecondaryButton icon={ChevronLeft} onClick={onBack}>
+        {language === "zh" ? "返回首页" : "Back home"}
+      </SecondaryButton>
+      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="rounded-xl border border-black/10 bg-white p-6 shadow-soft">
+          <h2 className="text-xl font-bold text-ink">{t("createNewPoster")}</h2>
+          <p className="mt-2 text-sm leading-6 text-graphite/70">
+            {language === "zh"
+              ? "只保留必要选项，快速生成一张尼日利亚市场汽车海报。"
+              : "Only the essential options for quickly generating a Nigerian-market automotive poster."}
+          </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <SelectField
+              language={language}
+              label={t("brand")}
+              value={settings.brand}
+              options={BRANDS}
+              onChange={(brand: Brand) => setSettings({ ...settings, brand })}
+            />
+            <SelectField
+              language={language}
+              label={t("posterGoal")}
+              value={settings.posterGoal}
+              options={POSTER_GOALS}
+              onChange={(posterGoal: PosterGoal) => setSettings({ ...settings, posterGoal })}
+            />
+            <SelectField
+              language={language}
+              label={t("posterRatio")}
+              value={settings.posterRatio}
+              options={POSTER_RATIOS}
+              onChange={(posterRatio: PosterRatio) => setSettings({ ...settings, posterRatio })}
+            />
+            <TextInput
+              label={t("vehicleModel")}
+              value={settings.vehicleModel}
+              onChange={(vehicleModel) => setSettings({ ...settings, vehicleModel })}
+              placeholder="e.g. Tiggo 8 Pro"
+            />
+            <TextInput
+              label={t("mainHeadline")}
+              value={settings.mainHeadline ?? ""}
+              onChange={(mainHeadline) => setSettings({ ...settings, mainHeadline })}
+            />
+            <TextInput
+              label={t("subheadline")}
+              value={settings.subheadline ?? ""}
+              onChange={(subheadline) => setSettings({ ...settings, subheadline })}
+            />
+            <div className="md:col-span-2">
+              <TextArea
+                label={t("extraDescription")}
+                value={settings.extraDescription ?? ""}
+                onChange={(extraDescription) => setSettings({ ...settings, extraDescription })}
+                placeholder={language === "zh" ? "可选：描述背景、场景或希望出现的元素。" : "Optional: describe scene, background, or key elements."}
+              />
             </div>
-            {COMPLIANCE_RULE}
           </div>
-          <UploadBox language={language} title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
-          <UploadBox language={language} title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
-        </div>
+          <div className="mt-5">
+            <UploadBox
+              language={language}
+              title={t("additionalReferenceImages")}
+              description={language === "zh" ? "可选：上传最多 2 张风格、车辆或场景参考。" : "Optional: upload up to 2 style, vehicle, or scene references."}
+              maxFiles={2}
+              files={referenceImages}
+              onFiles={setReferenceImages}
+            />
+          </div>
+          <div className="mt-5">
+            <PrimaryButton icon={WandSparkles} onClick={onGenerate}>
+              {isOpenAIImageProviderEnabled()
+                ? language === "zh"
+                  ? "生成海报"
+                  : "Generate poster"
+                : t("generatePrompt")}
+            </PrimaryButton>
+          </div>
+        </section>
+        <LogoPicker brand={settings.brand} language={language} />
       </div>
-    </Panel>
+    </div>
   );
 }
 
-function ResultPage({
+function ResultView({
   language,
   task,
-  manualResults,
-  setManualResults,
-  onTaskChange,
-  onRegenerate
+  setTask,
+  referenceImages,
+  onBack
 }: {
   language: Language;
   task: LocalizationTask;
-  manualResults: UploadedAsset[];
-  setManualResults: (assets: UploadedAsset[]) => void;
-  onTaskChange: (task: LocalizationTask) => void;
-  onRegenerate: () => void;
+  setTask: (task: LocalizationTask) => void;
+  referenceImages: UploadedAsset[];
+  onBack: () => void;
 }) {
-  const [prompt, setPrompt] = useState(task.finalPrompt);
-  const [copied, setCopied] = useState(false);
-  const [copiedLogoId, setCopiedLogoId] = useState<string | null>(null);
-  const [copiedLogoLinkId, setCopiedLogoLinkId] = useState<string | null>(null);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [generationError, setGenerationError] = useState<string | null>(null);
   const t = (key: TextKey) => getText(language, key);
-  const isApiProviderActive = isOpenAIImageProviderEnabled();
-  const brandLogoAssets = "brand" in task.formSettings ? getBrandLogoAssets(task.formSettings.brand) : [];
-  const allAssets = [
-    task.uploadedOriginalPoster,
-    ...task.uploadedFaceReferenceImages,
-    ...task.uploadedAdditionalReferenceImages
-  ].filter(Boolean) as UploadedAsset[];
-
-  function syncResults(files: UploadedAsset[]) {
-    const mapped = files.map((file) => ({ ...file, type: "manual_result" as const }));
-    setManualResults(mapped);
-    onTaskChange({
-      ...task,
-      status: mapped.length ? "result_uploaded" : task.status,
-      manuallyUploadedGeneratedImages: mapped,
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  async function copyPrompt() {
-    await navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-  }
-
-  function getLogoAssetUrl(asset: BrandLogoAsset) {
-    return `${globalThis.location.origin}${asset.publicPath}`;
-  }
-
-  async function copyLogoImage(asset: BrandLogoAsset) {
-    const response = await fetch(asset.publicPath);
-    const blob = await response.blob();
-    if ("ClipboardItem" in window) {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          [blob.type]: blob
-        })
-      ]);
-      setCopiedLogoId(asset.id);
-      globalThis.setTimeout(() => setCopiedLogoId(null), 1400);
-      return;
-    }
-    await navigator.clipboard.writeText(getLogoAssetUrl(asset));
-    setCopiedLogoLinkId(asset.id);
-    globalThis.setTimeout(() => setCopiedLogoLinkId(null), 1400);
-  }
-
-  async function copyLogoLink(asset: BrandLogoAsset) {
-    await navigator.clipboard.writeText(getLogoAssetUrl(asset));
-    setCopiedLogoLinkId(asset.id);
-    globalThis.setTimeout(() => setCopiedLogoLinkId(null), 1400);
-  }
+  const [prompt, setPrompt] = useState(task.finalPrompt);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const logoAssets = "brand" in task.formSettings ? getBrandLogoAssets(task.formSettings.brand) : [];
 
   async function appendImageReference(
     formData: FormData,
@@ -868,32 +802,23 @@ function ResultPage({
     const response = await fetch(source.url);
     const blob = await response.blob();
     if (!blob.type.startsWith("image/")) return;
-
     const fallbackExtension = blob.type.split("/")[1] || "png";
-    const fileName = source.name.includes(".")
-      ? source.name
-      : `${source.name}.${fallbackExtension}`;
+    const fileName = source.name.includes(".") ? source.name : `${source.name}.${fallbackExtension}`;
     formData.append("image", blob, fileName);
-    manifest.push({
-      label: source.label,
-      role: source.role,
-      fileName
-    });
+    manifest.push({ label: source.label, role: source.role, fileName });
   }
 
-  async function generateImageInApp() {
-    setIsGeneratingImage(true);
-    setGenerationError(null);
-
+  async function generateImage() {
+    setIsGenerating(true);
+    setError(null);
     try {
       const formData = new FormData();
       const imageManifest: Array<{ label: string; role: string; fileName: string }> = [];
-
       formData.append("prompt", prompt);
       formData.append(
         "logoAssets",
         JSON.stringify(
-          brandLogoAssets.map((asset) => ({
+          logoAssets.map((asset) => ({
             label: asset.label,
             publicPath: asset.publicPath,
             copyGuidance: asset.copyGuidance
@@ -908,18 +833,8 @@ function ResultPage({
         label: "Original poster image"
       });
 
-      for (let index = 0; index < task.uploadedFaceReferenceImages.length; index += 1) {
-        const asset = task.uploadedFaceReferenceImages[index];
-        await appendImageReference(formData, imageManifest, {
-          url: asset.url,
-          name: asset.name,
-          role: "authorized face reference",
-          label: `Face reference ${index + 1}`
-        });
-      }
-
-      for (let index = 0; index < task.uploadedAdditionalReferenceImages.length; index += 1) {
-        const asset = task.uploadedAdditionalReferenceImages[index];
+      for (let index = 0; index < referenceImages.length; index += 1) {
+        const asset = referenceImages[index];
         await appendImageReference(formData, imageManifest, {
           url: asset.url,
           name: asset.name,
@@ -928,7 +843,7 @@ function ResultPage({
         });
       }
 
-      for (const asset of brandLogoAssets) {
+      for (const asset of logoAssets) {
         await appendImageReference(formData, imageManifest, {
           url: asset.publicPath,
           name: asset.fileName,
@@ -944,7 +859,6 @@ function ResultPage({
         body: formData
       });
       const data = await response.json();
-
       if (!response.ok) {
         throw new Error(data.error ?? "Image generation failed.");
       }
@@ -952,18 +866,14 @@ function ResultPage({
       const generatedImages: UploadedAsset[] = (data.images ?? []).map(
         (image: { id: string; url: string }, index: number) => ({
           id: image.id,
-          name: `api-generated-${index + 1}.png`,
+          name: `generated-${index + 1}.png`,
           type: "api_result",
           url: image.url
         })
       );
-
-      if (!generatedImages.length) {
-        throw new Error("The image API returned no images.");
-      }
-
-      onTaskChange({
+      setTask({
         ...task,
+        finalPrompt: prompt,
         generationMode: "api",
         generationProvider: "openai_api",
         status: "result_uploaded",
@@ -973,72 +883,82 @@ function ResultPage({
         qualityLevel: data.quality ?? task.qualityLevel,
         updatedAt: new Date().toISOString()
       });
-    } catch (error) {
-      setGenerationError(error instanceof Error ? error.message : "Image generation failed.");
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : "Image generation failed.");
     } finally {
-      setIsGeneratingImage(false);
+      setIsGenerating(false);
     }
   }
 
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-      <Panel
-        title={t("finalPrompt")}
-        description={t("finalPromptDesc")}
-        action={
-          <div className="flex flex-wrap gap-2">
-            <SecondaryButton icon={Copy} onClick={copyPrompt}>{copied ? t("copied") : t("copyPrompt")}</SecondaryButton>
-            <SecondaryButton icon={ChevronRight} onClick={() => window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer")}>{t("openChatGPT")}</SecondaryButton>
+    <div className="space-y-5">
+      <SecondaryButton icon={ChevronLeft} onClick={onBack}>
+        {language === "zh" ? "返回修改" : "Back to edit"}
+      </SecondaryButton>
+      <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <section className="rounded-xl border border-black/10 bg-white p-6 shadow-soft">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-ink">{t("finalPrompt")}</h2>
+              <p className="mt-1 text-sm text-graphite/70">
+                {language === "zh" ? "可在生成前微调提示词。" : "You can edit the prompt before generation."}
+              </p>
+            </div>
+            <SecondaryButton icon={Copy} onClick={copyPrompt}>
+              {copied ? t("copied") : t("copyPrompt")}
+            </SecondaryButton>
           </div>
-        }
-      >
-        <textarea
-          className="focus-ring min-h-[520px] w-full resize-y rounded-md border border-black/10 bg-[#fffdf8] p-4 font-mono text-sm leading-6 text-ink"
-          value={prompt}
-          onChange={(event) => {
-            setPrompt(event.target.value);
-            onTaskChange({ ...task, finalPrompt: event.target.value, updatedAt: new Date().toISOString() });
-          }}
-        />
-        <div className="mt-4 flex flex-wrap gap-2">
-          <SecondaryButton icon={Pencil}>{t("editPrompt")}</SecondaryButton>
-          <SecondaryButton icon={RefreshCcw} onClick={onRegenerate}>{t("regeneratePrompt")}</SecondaryButton>
-        </div>
-      </Panel>
-      <div className="space-y-6">
-        <Panel
-          title={t("apiImageGeneration")}
-          description={isApiProviderActive ? t("apiImageGenerationDesc") : t("apiProviderDisabled")}
-          action={
+          <textarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            className="focus-ring mt-4 min-h-96 w-full resize-y rounded-md border border-black/10 bg-[#fffdf8] p-4 font-mono text-sm leading-6 text-ink"
+          />
+        </section>
+
+        <section className="rounded-xl border border-black/10 bg-white p-6 shadow-soft">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-ink">{t("apiImageGeneration")}</h2>
+              <p className="mt-1 text-sm leading-6 text-graphite/70">
+                {isOpenAIImageProviderEnabled()
+                  ? language === "zh"
+                    ? "会把上传图、参考图和 logo 一起发送给图片 API。"
+                    : "Uploaded images, references, and logo assets are sent to the image API."
+                  : t("apiProviderDisabled")}
+              </p>
+            </div>
             <PrimaryButton
-              icon={WandSparkles}
-              onClick={generateImageInApp}
-              disabled={!isApiProviderActive || isGeneratingImage}
+              icon={isGenerating ? Loader2 : Sparkles}
+              onClick={generateImage}
+              disabled={!isOpenAIImageProviderEnabled() || isGenerating}
             >
-              {isGeneratingImage ? t("generatingImage") : t("generateImage")}
+              {isGenerating ? t("generatingImage") : t("generateImage")}
             </PrimaryButton>
-          }
-        >
-          {generationError ? (
-            <div className="rounded-md border border-carloha-red/30 bg-carloha-red/10 px-3 py-2 text-sm text-ink">
-              <span className="font-semibold">{t("generationError")}:</span> {generationError}
+          </div>
+
+          {error ? (
+            <div className="mt-4 rounded-md border border-carloha-red/30 bg-carloha-red/10 px-3 py-2 text-sm text-ink">
+              <span className="font-semibold">{t("generationError")}:</span> {error}
             </div>
           ) : null}
-          {task.generatedImages.length ? (
-            <div className="mt-4 grid gap-3">
-              {task.generatedImages.map((asset) => (
-                <div key={asset.id} className="rounded-lg border border-black/10 bg-white p-3">
+
+          <div className="mt-4 grid gap-3">
+            {task.generatedImages.length ? (
+              task.generatedImages.map((asset) => (
+                <div key={asset.id} className="rounded-lg border border-black/10 bg-linen p-3">
                   {asset.url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={asset.url}
-                      alt={asset.name}
-                      className="max-h-80 w-full rounded-md object-contain"
-                    />
+                    <img src={asset.url} alt={asset.name} className="max-h-[520px] w-full rounded-md object-contain" />
                   ) : null}
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">{asset.name}</div>
+                    <div>
+                      <div className="text-sm font-semibold text-ink">{asset.name}</div>
                       <div className="text-xs text-graphite/60">
                         {task.selectedImageId === asset.id ? t("selectedResult") : t("apiGeneratedResult")}
                       </div>
@@ -1046,7 +966,7 @@ function ResultPage({
                     <SecondaryButton
                       icon={BadgeCheck}
                       onClick={() =>
-                        onTaskChange({
+                        setTask({
                           ...task,
                           selectedImageId: asset.id,
                           status: "selected",
@@ -1057,266 +977,44 @@ function ResultPage({
                       {t("markAsSelected")}
                     </SecondaryButton>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-graphite/70">{t("apiGeneratedImages")}</p>
-          )}
-        </Panel>
-        <Panel title={t("manualResultUpload")} description={t("manualResultUploadDesc")}>
-          <UploadBox language={language} title={t("generatedResultImages")} description={t("generatedResultDesc")} maxFiles={8} files={manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages} onFiles={syncResults} />
-          <div className="mt-4 grid gap-3">
-            {(manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages).map((asset) => (
-              <div key={asset.id} className="flex items-center justify-between rounded-md border border-black/10 bg-linen p-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{asset.name}</div>
-                  <div className="text-xs text-graphite/60">{task.selectedImageId === asset.id ? t("selectedResult") : t("uploadedResult")}</div>
-                </div>
-                <SecondaryButton
-                  icon={BadgeCheck}
-                  onClick={() =>
-                    onTaskChange({
-                      ...task,
-                      selectedImageId: asset.id,
-                      status: "selected",
-                      updatedAt: new Date().toISOString()
-                    })
-                  }
-                >
-                  {t("markAsSelected")}
-                </SecondaryButton>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <SecondaryButton icon={Download}>{t("downloadArchivedResult")}</SecondaryButton>
-          </div>
-        </Panel>
-        <Panel title={t("brandLogoAssets")} description={t("brandLogoAssetsDesc")}>
-          {brandLogoAssets.length ? (
-            <div className="grid gap-3">
-              {brandLogoAssets.map((asset) => (
-                <div key={asset.id} className="rounded-lg border border-black/10 bg-white p-3">
-                  <div className={cn("grid min-h-24 place-items-center rounded-md border border-black/10 p-4", asset.previewClassName)}>
-                    <Image
-                      src={asset.publicPath}
-                      alt={asset.label}
-                      width={420}
-                      height={120}
-                      className="max-h-20 w-auto max-w-full object-contain"
-                    />
-                  </div>
-                  <div className="mt-3">
-                    <div className="text-sm font-semibold text-ink">{asset.label}</div>
-                    <p className="mt-1 text-xs leading-5 text-graphite/70">{asset.copyGuidance}</p>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <SecondaryButton icon={Copy} onClick={() => copyLogoImage(asset)}>
-                      {copiedLogoId === asset.id ? t("logoCopied") : t("copyLogoImage")}
-                    </SecondaryButton>
-                    <SecondaryButton icon={Clipboard} onClick={() => copyLogoLink(asset)}>
-                      {copiedLogoLinkId === asset.id ? t("logoLinkCopied") : t("copyLogoLink")}
-                    </SecondaryButton>
-                    <SecondaryButton icon={ChevronRight} onClick={() => window.open(asset.publicPath, "_blank", "noopener,noreferrer")}>
-                      {t("openLogo")}
-                    </SecondaryButton>
+                  {asset.url ? (
                     <a
-                      className="focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-ink transition hover:bg-linen"
-                      href={asset.publicPath}
-                      download={asset.fileName}
+                      href={asset.url}
+                      download={asset.name}
+                      className="focus-ring mt-3 inline-flex h-10 items-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-ink hover:bg-linen"
                     >
                       <Download size={16} />
                       {t("downloadLogo")}
                     </a>
-                  </div>
+                  ) : null}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-graphite/70">{t("noBrandLogoAsset")}</p>
-          )}
-        </Panel>
-        <Panel title={t("taskSettings")}>
-          <div className="grid gap-2 text-sm">
-            <InfoRow label={t("workflow")} value={getWorkflowLabel(language, task.workflowType)} />
-            <InfoRow label={t("generationMode")} value={getOptionLabel(language, task.generationMode)} />
-            <InfoRow label={t("generationProvider")} value={getOptionLabel(language, task.generationProvider)} />
-            <InfoRow label={t("status")} value={getOptionLabel(language, task.status)} />
-            {Object.entries(task.formSettings).map(([key, value]) => (
-              <InfoRow key={key} label={key.replace(/([A-Z])/g, " $1")} value={getOptionLabel(language, String(value || "-"))} />
-            ))}
-          </div>
-        </Panel>
-        <Panel title={t("uploadedAssets")}>
-          {allAssets.length ? (
-            <div className="grid gap-2">
-              {allAssets.map((asset) => (
-                <div key={asset.id} className="flex items-center gap-3 rounded-md bg-linen p-3 text-sm">
-                  <ImagePlus size={16} className="text-carloha-leaf" />
-                  <span className="min-w-0 flex-1 truncate">{asset.name}</span>
-                  <span className="text-xs uppercase text-graphite/60">{asset.type}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-graphite/70">{t("noUploadedAssets")}</p>
-          )}
-        </Panel>
-      </div>
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[150px_1fr] gap-3 rounded-md bg-linen px-3 py-2">
-      <span className="text-xs font-semibold uppercase text-graphite/60">{label}</span>
-      <span className="min-w-0 break-words text-ink">{value}</span>
-    </div>
-  );
-}
-
-function HistoryPage({
-  language,
-  tasks,
-  onOpen
-}: {
-  language: Language;
-  tasks: LocalizationTask[];
-  onOpen: (task: LocalizationTask) => void;
-}) {
-  const t = (key: TextKey) => getText(language, key);
-  return (
-    <Panel title={t("history")} description={t("historyDesc")}>
-      <div className="overflow-hidden rounded-lg border border-black/10">
-        <table className="w-full min-w-[760px] border-collapse bg-white text-left text-sm">
-          <thead className="bg-ink text-white">
-            <tr>
-              <th className="px-4 py-3">{t("workflow")}</th>
-              <th className="px-4 py-3">{t("provider")}</th>
-              <th className="px-4 py-3">{t("status")}</th>
-              <th className="px-4 py-3">{t("brand")}</th>
-              <th className="px-4 py-3">{t("updated")}</th>
-              <th className="px-4 py-3">{t("action")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.length ? tasks.map((task) => (
-              <tr key={task.id} className="border-t border-black/10">
-                <td className="px-4 py-3">{getWorkflowLabel(language, task.workflowType)}</td>
-                <td className="px-4 py-3">{getOptionLabel(language, task.generationProvider)}</td>
-                <td className="px-4 py-3">{getOptionLabel(language, task.status)}</td>
-                <td className="px-4 py-3">{"brand" in task.formSettings ? getOptionLabel(language, task.formSettings.brand) : "-"}</td>
-                <td className="px-4 py-3">{new Date(task.updatedAt).toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <SecondaryButton icon={ChevronRight} onClick={() => onOpen(task)}>{t("open")}</SecondaryButton>
-                </td>
-              </tr>
-            )) : (
-              <tr>
-                <td className="px-4 py-8 text-center text-graphite/60" colSpan={6}>{t("noTaskHistory")}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Panel>
-  );
-}
-
-function TemplatesPage({ language }: { language: Language }) {
-  const t = (key: TextKey) => getText(language, key);
-  return (
-    <Panel title={t("templates")} description={t("templatesDesc")}>
-      <div className="grid gap-3 md:grid-cols-3">
-        {SCENE_TEMPLATES.map((template) => (
-          <div key={template} className="rounded-lg border border-black/10 bg-linen p-4">
-            <div className="font-semibold text-ink">{getOptionLabel(language, template)}</div>
-            <p className="mt-2 text-sm leading-6 text-graphite/70">{t("templateDefaultDesc")}</p>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function AssetsPage({ language }: { language: Language }) {
-  const t = (key: TextKey) => getText(language, key);
-  const presets =
-    language === "zh"
-      ? ["Logo 组合", "展厅背景", "车辆抠图", "活动纹理", "活动参考"]
-      : ["Logo lockups", "Showroom backgrounds", "Vehicle cutouts", "Campaign textures", "Event references"];
-  return (
-    <Panel title={t("presetAssets")} description={t("presetAssetsDesc")}>
-      <div className="grid gap-3 md:grid-cols-5">
-        {presets.map((preset) => (
-          <div key={preset} className="rounded-lg border border-black/10 bg-white p-4">
-            <Archive className="text-carloha-red" size={20} />
-            <div className="mt-3 text-sm font-semibold">{preset}</div>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function AdminSettings({ language }: { language: Language }) {
-  const t = (key: TextKey) => getText(language, key);
-  return (
-    <div className="space-y-6">
-      <Panel title={t("generationProviderSetting")} description={t("generationProviderDesc")}>
-        <div className="grid gap-3 md:grid-cols-2">
-          {generationProviders.map((provider) => (
-            <label
-              key={provider.id}
-              className={cn(
-                "rounded-lg border p-4",
-                provider.enabled ? "border-carloha-leaf bg-white" : "border-black/10 bg-linen opacity-70"
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <input type="radio" checked={provider.enabled} disabled={!provider.enabled} readOnly className="mt-1" />
-                <div>
-                  <div className="flex flex-wrap items-center gap-2 font-semibold text-ink">
-                    {getOptionLabel(language, provider.label)}
-                    {!provider.enabled ? <span className="rounded bg-black/10 px-2 py-1 text-xs">{t("disabled")}</span> : null}
-                  </div>
-                  <p className="mt-1 text-sm leading-6 text-graphite/70">
-                    {provider.helperText ? getOptionLabel(language, provider.helperText) : t("defaultOnlyProvider")}
-                  </p>
+              ))
+            ) : (
+              <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-black/15 bg-linen text-sm text-graphite/60">
+                <div className="text-center">
+                  <ImagePlus className="mx-auto mb-2 text-carloha-red" size={28} />
+                  {language === "zh" ? "生成结果会显示在这里" : "Generated results will appear here"}
                 </div>
               </div>
-            </label>
-          ))}
-        </div>
-      </Panel>
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title={t("userManagement")} description={t("userManagementDesc")}>
-          <div className="grid gap-3 text-sm">
-            {["admin@carloha.local", "designer@carloha.local", "reviewer@carloha.local"].map((email, index) => (
-              <InfoRow key={email} label={getOptionLabel(language, index === 0 ? "Admin" : "User")} value={email} />
-            ))}
+            )}
           </div>
-        </Panel>
-        <Panel title={t("systemPrompts")} description={t("systemPromptsDesc")}>
-          <div className="rounded-md bg-linen p-4 text-sm leading-6">
-            <div className="font-semibold text-ink">{t("defaultComplianceRule")}</div>
-            <p className="mt-2 text-graphite/80">{COMPLIANCE_RULE}</p>
+
+          <div className="mt-5 rounded-lg border border-black/10 bg-linen p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <RefreshCcw size={16} />
+              {language === "zh" ? "随请求发送的参考素材" : "References sent with the request"}
+            </div>
+            <ul className="mt-2 space-y-1 text-xs text-graphite/70">
+              {task.uploadedOriginalPoster ? <li>{task.uploadedOriginalPoster.name}</li> : null}
+              {referenceImages.map((asset) => (
+                <li key={asset.id}>{asset.name}</li>
+              ))}
+              {logoAssets.map((asset) => (
+                <li key={asset.id}>{asset.fileName}</li>
+              ))}
+            </ul>
           </div>
-        </Panel>
-        <Panel title={t("presetAssetsManagement")} description={t("presetAssetsManagementDesc")}>
-          <div className="rounded-md border border-dashed border-black/20 bg-white p-5 text-sm text-graphite/70">
-            {t("storageBucketPlanned")} <span className="font-semibold text-ink">preset-assets</span>
-          </div>
-        </Panel>
-        <Panel title={t("databaseReadiness")} description={t("databaseReadinessDesc")}>
-          <div className="grid gap-2">
-            {["generation_mode", "generation_provider", "model_name", "quality_level", "estimated_cost", "api_response", "generated_images"].map((field) => (
-              <InfoRow key={field} label={t("field")} value={field} />
-            ))}
-          </div>
-        </Panel>
+        </section>
       </div>
     </div>
   );

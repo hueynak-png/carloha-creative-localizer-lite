@@ -1,8 +1,4 @@
-import {
-  COMPLIANCE_RULE,
-  LOCALIZATION_LEVELS,
-  TEXT_HANDLING_MODES
-} from "@/lib/constants";
+import { COMPLIANCE_RULE } from "@/lib/constants";
 import { getBrandLogoPromptInstruction } from "@/lib/brandAssets";
 import type {
   CreateNewSettings,
@@ -17,39 +13,36 @@ function section(title: string, lines: Array<string | undefined>) {
 
 function generateLocalizePrompt(request: GenerationRequest) {
   const settings = request.settings as LocalizeExistingSettings;
-  const referenceLine = request.faceReferences.length
-    ? "Authorized face reference images are uploaded. Use them only to guide approved face identity where appropriate."
-    : "No authorized face reference image is uploaded.";
 
   return [
-    "Create a localized poster variation for Carloha's Nigerian market using the uploaded original poster as the primary source.",
-    section("Core Preservation Rules", [
-      `Preserve the exact vehicle model: ${settings.vehicleModel || "the uploaded vehicle"}.`,
-      "Preserve the vehicle body color, vehicle angle, logo position, original copy, main composition, and layout hierarchy.",
-      "When reference images are attached, use them as visual inputs, not as optional inspiration.",
-      "Keep the brand presentation premium, clean, and suitable for internal automotive campaign design.",
-      COMPLIANCE_RULE
+    "Localize the uploaded poster image for the Nigerian market using the uploaded poster as the primary source image.",
+    section("Strict Preservation Rules", [
+      "Preserve all original text content, typography, text placement, spacing, and layout hierarchy.",
+      "Preserve every person's original position, scale, pose, and overlap relationship.",
+      "Preserve the vehicle's original position, size, angle, body color, lighting direction, and relationship to the layout.",
+      "Preserve the overall poster composition. Do not redesign the poster.",
+      "Do not invent new headline copy, change original copy, or move major layout elements."
     ]),
-    section("Required Logo Asset", [getBrandLogoPromptInstruction(settings.brand)]),
-    section("Allowed Localization Changes", [
-      "You may change the background to a Nigerian setting.",
-      "You may replace all people with Nigerian / West African Black people.",
-      "You may reduce the number of people if needed.",
-      "You may change people placement, poses, and overlap if it improves the design."
+    section("Only Allowed Localization Changes", [
+      "Change all people into Nigerian / West African Black people.",
+      "People must not show a clear, identifiable front-facing face. Use side angles, partial face visibility, turned heads, or natural occlusion.",
+      "Change only the background/environment so it clearly reflects Nigeria, such as Lagos or Abuja urban details, Nigerian roads, local architecture, tropical plants, market/street/event atmosphere, or subtle Nigerian cultural cues.",
+      "Keep the changes realistic and advertising-ready."
+    ]),
+    section("Logo Replacement", [
+      "Replace the original logo in the uploaded poster with the attached logo from the logo library.",
+      "Keep the logo in the same general logo area unless the source layout makes a slight adjustment necessary.",
+      getBrandLogoPromptInstruction(settings.brand)
+    ]),
+    section("Compliance", [
+      COMPLIANCE_RULE
     ]),
     section("Task Settings", [
       `Brand: ${settings.brand}`,
-      `Vehicle model: ${settings.vehicleModel || "Use uploaded reference"}`,
-      `Scene template: ${settings.sceneTemplate}`,
-      `Localization level: ${settings.localizationLevel} - ${LOCALIZATION_LEVELS[settings.localizationLevel]}`,
-      `Clothing style: ${settings.clothingStyle}`,
       `Poster ratio: ${settings.posterRatio}`,
-      `Text handling mode: ${settings.textHandlingMode} - ${TEXT_HANDLING_MODES[settings.textHandlingMode]}`,
-      `Face reference usage: ${settings.faceReferenceUsage}`,
-      referenceLine,
       settings.extraInstruction ? `Extra instruction: ${settings.extraInstruction}` : undefined
     ]),
-    "Return one polished poster design ready for designer review."
+    "Return one localized poster image that still looks like the same poster, with only the allowed localization changes applied."
   ].join("\n\n");
 }
 
@@ -74,10 +67,6 @@ function generateCreatePrompt(request: GenerationRequest) {
       `Brand: ${settings.brand}`,
       `Vehicle model: ${settings.vehicleModel || "Use the selected campaign vehicle"}`,
       `Poster goal: ${settings.posterGoal}`,
-      `Scene template: ${settings.sceneTemplate}`,
-      `Localization level: ${settings.localizationLevel} - ${LOCALIZATION_LEVELS[settings.localizationLevel]}`,
-      `People mode: ${settings.peopleMode}`,
-      `Clothing style: ${settings.clothingStyle}`,
       `Poster ratio: ${settings.posterRatio}`,
       `Copy mode: ${settings.copyMode}`,
       ...copyLines,

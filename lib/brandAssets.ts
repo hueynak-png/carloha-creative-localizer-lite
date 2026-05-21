@@ -30,7 +30,7 @@ const carlohaCareLogo: BrandLogoAsset = {
 };
 
 export function getBrandLogoAssets(brand: Brand): BrandLogoAsset[] {
-  if (brand === "Chery") return [cheryLogo];
+  if (brand === "Chery" || brand === "Tiggo") return [cheryLogo];
   if (brand === "Carloha" || brand === "Used Cars") return [carlohaCareLogo];
   return [];
 }
