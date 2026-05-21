@@ -26,6 +26,7 @@ function generateLocalizePrompt(request: GenerationRequest) {
     section("Core Preservation Rules", [
       `Preserve the exact vehicle model: ${settings.vehicleModel || "the uploaded vehicle"}.`,
       "Preserve the vehicle body color, vehicle angle, logo position, original copy, main composition, and layout hierarchy.",
+      "When reference images are attached, use them as visual inputs, not as optional inspiration.",
       "Keep the brand presentation premium, clean, and suitable for internal automotive campaign design.",
       COMPLIANCE_RULE
     ]),
@@ -85,6 +86,7 @@ function generateCreatePrompt(request: GenerationRequest) {
     ]),
     section("Design Direction", [
       "Use a clean poster composition with strong vehicle presence, clear hierarchy, tasteful Nigerian lifestyle cues, and a production-ready advertising finish.",
+      "When reference images are attached, use them as visual inputs, not as optional inspiration.",
       "Keep logos and text areas clean, organized, and editable-looking for final designer adjustment."
     ]),
     "Return one polished poster concept ready for designer review."

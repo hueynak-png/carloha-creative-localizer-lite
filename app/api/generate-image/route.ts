@@ -11,6 +11,12 @@ type ImageGenerationPayload = {
   logoAssets?: LogoAssetPayload[];
 };
 
+type ImageReferenceManifestItem = {
+  label?: string;
+  role?: string;
+  fileName?: string;
+};
+
 function isApiEnabled() {
   return (
     process.env.GENERATION_PROVIDER === "openai_api" ||
@@ -28,8 +34,40 @@ function getOpenAIImageConfig() {
   return { apiKey, baseUrl, model, size, quality };
 }
 
-function buildPrompt(prompt: string, logoAssets: LogoAssetPayload[], origin: string) {
-  if (!logoAssets.length) return prompt;
+function buildPrompt({
+  prompt,
+  logoAssets,
+  origin,
+  imageManifest
+}: {
+  prompt: string;
+  logoAssets: LogoAssetPayload[];
+  origin: string;
+  imageManifest: ImageReferenceManifestItem[];
+}) {
+  const sections = [prompt];
+
+  if (imageManifest.length) {
+    const manifestText = imageManifest
+      .map((item, index) => {
+        const role = item.role ? ` (${item.role})` : "";
+        const fileName = item.fileName ? ` File: ${item.fileName}.` : "";
+        return `${index + 1}. ${item.label ?? "Reference image"}${role}.${fileName}`;
+      })
+      .join("\n");
+
+    sections.push(
+      [
+        "## Required Use Of Attached Reference Images",
+        "The attached images are not optional style suggestions. Use them as visual references in the final image.",
+        "Use the uploaded poster/reference images to preserve the requested vehicle, composition, people references, and visual direction.",
+        "Use the attached brand logo image exactly as the logo reference. Do not invent, redraw, substitute, or approximate the logo.",
+        manifestText
+      ].join("\n")
+    );
+  }
+
+  if (!logoAssets.length) return sections.join("\n\n");
 
   const logoInstructions = logoAssets
     .filter((asset) => asset.publicPath)
@@ -45,7 +83,11 @@ function buildPrompt(prompt: string, logoAssets: LogoAssetPayload[], origin: str
     })
     .join("\n\n");
 
-  return `${prompt}\n\n## Attached Brand Logo References\n${logoInstructions}\n\nUse the provided brand logo reference exactly as instructed.`;
+  sections.push(
+    `${"## Attached Brand Logo References"}\n${logoInstructions}\n\nUse the provided brand logo reference exactly as instructed.`
+  );
+
+  return sections.join("\n\n");
 }
 
 function normalizeImages(data: unknown) {
@@ -77,20 +119,58 @@ function normalizeImages(data: unknown) {
 async function requestImageGeneration({
   apiKey,
   baseUrl,
-  body
+  body,
+  endpoint = "generations"
 }: {
   apiKey: string;
   baseUrl: string;
-  body: Record<string, unknown>;
+  body: BodyInit;
+  endpoint?: "generations" | "edits";
 }) {
-  return fetch(`${baseUrl}/images/generations`, {
+  const headers: HeadersInit = {
+    Authorization: `Bearer ${apiKey}`
+  };
+  if (typeof body === "string") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return fetch(`${baseUrl}/images/${endpoint}`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
+    headers,
+    body
   });
+}
+
+function createEditFormData({
+  prompt,
+  files,
+  model,
+  size,
+  quality,
+  useArrayImageField,
+  includeResponseFormat
+}: {
+  prompt: string;
+  files: File[];
+  model: string;
+  size: string;
+  quality: string;
+  useArrayImageField: boolean;
+  includeResponseFormat: boolean;
+}) {
+  const formData = new FormData();
+  formData.append("model", model);
+  formData.append("prompt", prompt);
+  formData.append("size", size);
+  formData.append("quality", quality);
+  formData.append("n", "1");
+  if (includeResponseFormat) {
+    formData.append("response_format", "b64_json");
+  }
+  files.slice(0, 16).forEach((file) => {
+    formData.append(useArrayImageField ? "image[]" : "image", file, file.name);
+  });
+  return formData;
 }
 
 export async function POST(request: NextRequest) {
@@ -109,34 +189,98 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const payload = (await request.json()) as ImageGenerationPayload;
-  if (!payload.prompt?.trim()) {
+  const contentType = request.headers.get("content-type") ?? "";
+  let prompt = "";
+  let logoAssets: LogoAssetPayload[] = [];
+  let imageManifest: ImageReferenceManifestItem[] = [];
+  let files: File[] = [];
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    prompt = String(formData.get("prompt") ?? "");
+    logoAssets = JSON.parse(String(formData.get("logoAssets") ?? "[]")) as LogoAssetPayload[];
+    imageManifest = JSON.parse(String(formData.get("imageManifest") ?? "[]")) as ImageReferenceManifestItem[];
+    files = formData
+      .getAll("image")
+      .filter((item): item is File => item instanceof File && item.type.startsWith("image/"));
+  } else {
+    const payload = (await request.json()) as ImageGenerationPayload;
+    prompt = payload.prompt ?? "";
+    logoAssets = payload.logoAssets ?? [];
+  }
+
+  if (!prompt.trim()) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
   }
 
-  const prompt = buildPrompt(
-    payload.prompt.trim(),
-    payload.logoAssets ?? [],
-    request.nextUrl.origin
-  );
+  const finalPrompt = buildPrompt({
+    prompt: prompt.trim(),
+    logoAssets,
+    origin: request.nextUrl.origin,
+    imageManifest
+  });
 
   const body: Record<string, unknown> = {
     model,
-    prompt,
+    prompt: finalPrompt,
     size,
     quality,
     n: 1,
     response_format: "b64_json"
   };
 
-  let response = await requestImageGeneration({ apiKey, baseUrl, body });
+  let response: Response;
+  if (files.length) {
+    response = await requestImageGeneration({
+      apiKey,
+      baseUrl,
+      endpoint: "edits",
+      body: createEditFormData({
+        prompt: finalPrompt,
+        files,
+        model,
+        size,
+        quality,
+        useArrayImageField: false,
+        includeResponseFormat: true
+      })
+    });
+  } else {
+    response = await requestImageGeneration({
+      apiKey,
+      baseUrl,
+      body: JSON.stringify(body)
+    });
+  }
   let data = await response.json().catch(() => null);
 
-  if (!response.ok && response.status === 400 && body.response_format) {
-    const fallbackBody = { ...body };
-    delete fallbackBody.response_format;
-    response = await requestImageGeneration({ apiKey, baseUrl, body: fallbackBody });
-    data = await response.json().catch(() => null);
+  if (!response.ok && response.status === 400) {
+    if (files.length) {
+      response = await requestImageGeneration({
+        apiKey,
+        baseUrl,
+        endpoint: "edits",
+        body: createEditFormData({
+          prompt: finalPrompt,
+          files,
+          model,
+          size,
+          quality,
+          useArrayImageField: true,
+          includeResponseFormat: false
+        })
+      });
+      data = await response.json().catch(() => null);
+    } else if (body.response_format) {
+      const fallbackBody = { ...body };
+      delete fallbackBody.response_format;
+      response = await requestImageGeneration({
+        apiKey,
+        baseUrl,
+        body: JSON.stringify(fallbackBody)
+      });
+      data = await response.json().catch(() => null);
+    }
   }
 
   if (!response.ok) {

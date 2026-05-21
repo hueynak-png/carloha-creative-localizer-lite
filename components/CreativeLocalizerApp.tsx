@@ -859,24 +859,89 @@ function ResultPage({
     globalThis.setTimeout(() => setCopiedLogoLinkId(null), 1400);
   }
 
+  async function appendImageReference(
+    formData: FormData,
+    manifest: Array<{ label: string; role: string; fileName: string }>,
+    source: { url?: string; name: string; role: string; label: string }
+  ) {
+    if (!source.url) return;
+    const response = await fetch(source.url);
+    const blob = await response.blob();
+    if (!blob.type.startsWith("image/")) return;
+
+    const fallbackExtension = blob.type.split("/")[1] || "png";
+    const fileName = source.name.includes(".")
+      ? source.name
+      : `${source.name}.${fallbackExtension}`;
+    formData.append("image", blob, fileName);
+    manifest.push({
+      label: source.label,
+      role: source.role,
+      fileName
+    });
+  }
+
   async function generateImageInApp() {
     setIsGeneratingImage(true);
     setGenerationError(null);
 
     try {
-      const response = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          prompt,
-          logoAssets: brandLogoAssets.map((asset) => ({
+      const formData = new FormData();
+      const imageManifest: Array<{ label: string; role: string; fileName: string }> = [];
+
+      formData.append("prompt", prompt);
+      formData.append(
+        "logoAssets",
+        JSON.stringify(
+          brandLogoAssets.map((asset) => ({
             label: asset.label,
             publicPath: asset.publicPath,
             copyGuidance: asset.copyGuidance
           }))
-        })
+        )
+      );
+
+      await appendImageReference(formData, imageManifest, {
+        url: task.uploadedOriginalPoster?.url,
+        name: task.uploadedOriginalPoster?.name ?? "original-poster.png",
+        role: "original poster",
+        label: "Original poster image"
+      });
+
+      for (let index = 0; index < task.uploadedFaceReferenceImages.length; index += 1) {
+        const asset = task.uploadedFaceReferenceImages[index];
+        await appendImageReference(formData, imageManifest, {
+          url: asset.url,
+          name: asset.name,
+          role: "authorized face reference",
+          label: `Face reference ${index + 1}`
+        });
+      }
+
+      for (let index = 0; index < task.uploadedAdditionalReferenceImages.length; index += 1) {
+        const asset = task.uploadedAdditionalReferenceImages[index];
+        await appendImageReference(formData, imageManifest, {
+          url: asset.url,
+          name: asset.name,
+          role: "additional design reference",
+          label: `Additional reference ${index + 1}`
+        });
+      }
+
+      for (const asset of brandLogoAssets) {
+        await appendImageReference(formData, imageManifest, {
+          url: asset.publicPath,
+          name: asset.fileName,
+          role: "required brand logo",
+          label: asset.label
+        });
+      }
+
+      formData.append("imageManifest", JSON.stringify(imageManifest));
+
+      const response = await fetch("/api/generate-image", {
+        method: "POST",
+        body: formData
       });
       const data = await response.json();
 

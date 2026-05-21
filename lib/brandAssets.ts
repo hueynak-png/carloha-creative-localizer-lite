@@ -15,7 +15,7 @@ const cheryLogo: BrandLogoAsset = {
   fileName: "chery-logo.png",
   publicPath: "/brand-assets/chery-logo.png",
   copyGuidance:
-    "For Chery brand posters, the final image must use the provided Chery logo asset. Do not replace it with a generic or recreated logo.",
+    "For Chery brand posters, the final image must use the attached Chery logo image as the authoritative logo reference. Preserve the logo wordmark and proportions. Do not replace it with a generic badge, dealership logo, or recreated text.",
   previewClassName: "bg-ink"
 };
 
@@ -25,7 +25,7 @@ const carlohaCareLogo: BrandLogoAsset = {
   fileName: "carloha-care-logo.jpg",
   publicPath: "/brand-assets/carloha-care-logo.jpg",
   copyGuidance:
-    "For Carloha or Used Cars posters, use the provided Carloha Care orange logo. The logo may be recolored to white when the poster design requires a light logo on a dark background.",
+    "For Carloha or Used Cars posters, use the attached Carloha Care logo image as the authoritative logo reference. Preserve the wordmark and care badge proportions. Use the orange logo by default; it may be recolored to white only when the poster design requires a light logo on a dark background.",
   previewClassName: "bg-white"
 };
 
