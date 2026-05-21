@@ -898,7 +898,19 @@ function ResultView({
         body: formData
       });
       const responseText = await response.text();
-      const data = responseText ? JSON.parse(responseText) : {};
+      let data: {
+        error?: string;
+        images?: Array<{ id: string; url: string }>;
+        model?: string;
+        quality?: string;
+      } = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = {
+          error: responseText || "Image generation returned a non-JSON response."
+        };
+      }
       if (!response.ok) {
         throw new Error(data.error ?? "Image generation failed.");
       }

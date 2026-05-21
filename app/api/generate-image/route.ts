@@ -164,13 +164,17 @@ async function requestImageGeneration({
   apiKey,
   baseUrl,
   body,
-  endpoint = "generations"
+  endpoint = "generations",
+  timeoutMs = 55000
 }: {
   apiKey: string;
   baseUrl: string;
   body: BodyInit;
   endpoint?: "generations" | "edits";
+  timeoutMs?: number;
 }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const headers: HeadersInit = {
     Authorization: `Bearer ${apiKey}`
   };
@@ -178,11 +182,16 @@ async function requestImageGeneration({
     headers["Content-Type"] = "application/json";
   }
 
-  return fetch(`${baseUrl}/images/${endpoint}`, {
-    method: "POST",
-    headers,
-    body
-  });
+  try {
+    return await fetch(`${baseUrl}/images/${endpoint}`, {
+      method: "POST",
+      headers,
+      body,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function createEditFormData({
@@ -218,88 +227,63 @@ function createEditFormData({
 }
 
 export async function POST(request: NextRequest) {
-  if (!isApiEnabled()) {
-    return NextResponse.json(
-      { error: "Image API generation is disabled for this deployment." },
-      { status: 403 }
-    );
-  }
+  try {
+    if (!isApiEnabled()) {
+      return NextResponse.json(
+        { error: "Image API generation is disabled for this deployment." },
+        { status: 403 }
+      );
+    }
 
-  const { apiKey, baseUrl, model, size, quality } = getOpenAIImageConfig();
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "OPENAI_API_KEY is not configured." },
-      { status: 500 }
-    );
-  }
+    const { apiKey, baseUrl, model, size, quality } = getOpenAIImageConfig();
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY is not configured." },
+        { status: 500 }
+      );
+    }
 
-  const contentType = request.headers.get("content-type") ?? "";
-  let prompt = "";
-  let logoAssets: LogoAssetPayload[] = [];
-  let imageManifest: ImageReferenceManifestItem[] = [];
-  let files: File[] = [];
+    const contentType = request.headers.get("content-type") ?? "";
+    let prompt = "";
+    let logoAssets: LogoAssetPayload[] = [];
+    let imageManifest: ImageReferenceManifestItem[] = [];
+    let files: File[] = [];
 
-  if (contentType.includes("multipart/form-data")) {
-    const formData = await request.formData();
-    prompt = String(formData.get("prompt") ?? "");
-    logoAssets = JSON.parse(String(formData.get("logoAssets") ?? "[]")) as LogoAssetPayload[];
-    imageManifest = JSON.parse(String(formData.get("imageManifest") ?? "[]")) as ImageReferenceManifestItem[];
-    files = formData
-      .getAll("image")
-      .filter((item): item is File => item instanceof File && item.type.startsWith("image/"));
-  } else {
-    const payload = (await request.json()) as ImageGenerationPayload;
-    prompt = payload.prompt ?? "";
-    logoAssets = payload.logoAssets ?? [];
-  }
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      prompt = String(formData.get("prompt") ?? "");
+      logoAssets = JSON.parse(String(formData.get("logoAssets") ?? "[]")) as LogoAssetPayload[];
+      imageManifest = JSON.parse(String(formData.get("imageManifest") ?? "[]")) as ImageReferenceManifestItem[];
+      files = formData
+        .getAll("image")
+        .filter((item): item is File => item instanceof File && item.type.startsWith("image/"));
+    } else {
+      const payload = (await request.json()) as ImageGenerationPayload;
+      prompt = payload.prompt ?? "";
+      logoAssets = payload.logoAssets ?? [];
+    }
 
-  if (!prompt.trim()) {
-    return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
-  }
+    if (!prompt.trim()) {
+      return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+    }
 
-  const finalPrompt = buildPrompt({
-    prompt: prompt.trim(),
-    logoAssets,
-    origin: request.nextUrl.origin,
-    imageManifest
-  });
-
-  const body: Record<string, unknown> = {
-    model,
-    prompt: finalPrompt,
-    size,
-    quality,
-    n: 1,
-    response_format: "b64_json"
-  };
-
-  let response: Response;
-  if (files.length) {
-    response = await requestImageGeneration({
-      apiKey,
-      baseUrl,
-      endpoint: "edits",
-      body: createEditFormData({
-        prompt: finalPrompt,
-        files,
-        model,
-        size,
-        quality,
-        useArrayImageField: false,
-        includeResponseFormat: true
-      })
+    const finalPrompt = buildPrompt({
+      prompt: prompt.trim(),
+      logoAssets,
+      origin: request.nextUrl.origin,
+      imageManifest
     });
-  } else {
-    response = await requestImageGeneration({
-      apiKey,
-      baseUrl,
-      body: JSON.stringify(body)
-    });
-  }
-  let parsed = await parseResponseBody(response);
-  let data = parsed.json;
 
-  if (!response.ok && response.status === 400) {
+    const body: Record<string, unknown> = {
+      model,
+      prompt: finalPrompt,
+      size,
+      quality,
+      n: 1,
+      response_format: "b64_json"
+    };
+
+    let response: Response;
     if (files.length) {
       response = await requestImageGeneration({
         apiKey,
@@ -311,39 +295,75 @@ export async function POST(request: NextRequest) {
           model,
           size,
           quality,
-          useArrayImageField: true,
-          includeResponseFormat: false
+          useArrayImageField: false,
+          includeResponseFormat: true
         })
       });
-      parsed = await parseResponseBody(response);
-      data = parsed.json;
-    } else if (body.response_format) {
-      const fallbackBody = { ...body };
-      delete fallbackBody.response_format;
+    } else {
       response = await requestImageGeneration({
         apiKey,
         baseUrl,
-        body: JSON.stringify(fallbackBody)
+        body: JSON.stringify(body)
       });
-      parsed = await parseResponseBody(response);
-      data = parsed.json;
     }
-  }
+    let parsed = await parseResponseBody(response);
+    let data = parsed.json;
 
-  if (!response.ok) {
-    return NextResponse.json(
-      {
-        error: getErrorMessage(data, response.status, parsed.text)
-      },
-      { status: response.status }
-    );
-  }
+    if (!response.ok && response.status === 400) {
+      if (files.length) {
+        response = await requestImageGeneration({
+          apiKey,
+          baseUrl,
+          endpoint: "edits",
+          body: createEditFormData({
+            prompt: finalPrompt,
+            files,
+            model,
+            size,
+            quality,
+            useArrayImageField: true,
+            includeResponseFormat: false
+          })
+        });
+        parsed = await parseResponseBody(response);
+        data = parsed.json;
+      } else if (body.response_format) {
+        const fallbackBody = { ...body };
+        delete fallbackBody.response_format;
+        response = await requestImageGeneration({
+          apiKey,
+          baseUrl,
+          body: JSON.stringify(fallbackBody)
+        });
+        parsed = await parseResponseBody(response);
+        data = parsed.json;
+      }
+    }
 
-  return NextResponse.json({
-    images: normalizeImages(data),
-    model,
-    size,
-    quality,
-    raw: data
-  });
+    if (!response.ok) {
+      return NextResponse.json(
+        {
+          error: getErrorMessage(data, response.status, parsed.text)
+        },
+        { status: response.status }
+      );
+    }
+
+    return NextResponse.json({
+      images: normalizeImages(data),
+      model,
+      size,
+      quality,
+      raw: data
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error && error.name === "AbortError"
+        ? "Image generation timed out while waiting for the upstream API."
+        : error instanceof Error
+          ? error.message
+          : "Image generation failed before the upstream API returned a response.";
+
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }
