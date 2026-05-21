@@ -897,7 +897,8 @@ function ResultView({
         method: "POST",
         body: formData
       });
-      const data = await response.json();
+      const responseText = await response.text();
+      const data = responseText ? JSON.parse(responseText) : {};
       if (!response.ok) {
         throw new Error(data.error ?? "Image generation failed.");
       }

@@ -20,6 +20,11 @@ type ImageReferenceManifestItem = {
   fileName?: string;
 };
 
+type ParsedResponseBody = {
+  json: unknown | null;
+  text: string;
+};
+
 function isApiEnabled() {
   return (
     process.env.GENERATION_PROVIDER === "openai_api" ||
@@ -37,10 +42,13 @@ function getOpenAIImageConfig() {
   return { apiKey, baseUrl, model, size, quality };
 }
 
-function getErrorMessage(data: unknown, status: number) {
+function getErrorMessage(data: unknown, status: number, text = "") {
   const payload = data as { error?: { message?: string }; message?: string } | null;
   const upstreamMessage =
-    payload?.error?.message ?? payload?.message ?? `Image generation failed with status ${status}.`;
+    payload?.error?.message ??
+    payload?.message ??
+    text.trim() ??
+    `Image generation failed with status ${status}.`;
 
   if (status === 504) {
     return "Image generation timed out before the upstream API returned a result. Try a smaller image or fewer references.";
@@ -137,6 +145,19 @@ function normalizeImages(data: unknown) {
       return null;
     })
     .filter(Boolean);
+}
+
+async function parseResponseBody(response: Response): Promise<ParsedResponseBody> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return { json: null, text: "" };
+  }
+
+  try {
+    return { json: JSON.parse(text), text };
+  } catch {
+    return { json: null, text };
+  }
 }
 
 async function requestImageGeneration({
@@ -275,7 +296,8 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body)
     });
   }
-  let data = await response.json().catch(() => null);
+  let parsed = await parseResponseBody(response);
+  let data = parsed.json;
 
   if (!response.ok && response.status === 400) {
     if (files.length) {
@@ -293,7 +315,8 @@ export async function POST(request: NextRequest) {
           includeResponseFormat: false
         })
       });
-      data = await response.json().catch(() => null);
+      parsed = await parseResponseBody(response);
+      data = parsed.json;
     } else if (body.response_format) {
       const fallbackBody = { ...body };
       delete fallbackBody.response_format;
@@ -302,14 +325,15 @@ export async function POST(request: NextRequest) {
         baseUrl,
         body: JSON.stringify(fallbackBody)
       });
-      data = await response.json().catch(() => null);
+      parsed = await parseResponseBody(response);
+      data = parsed.json;
     }
   }
 
   if (!response.ok) {
     return NextResponse.json(
       {
-        error: getErrorMessage(data, response.status)
+        error: getErrorMessage(data, response.status, parsed.text)
       },
       { status: response.status }
     );
