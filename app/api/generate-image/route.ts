@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 type LogoAssetPayload = {
   label?: string;
   publicPath?: string;
@@ -32,6 +35,26 @@ function getOpenAIImageConfig() {
   const quality = process.env.OPENAI_IMAGE_QUALITY || "auto";
 
   return { apiKey, baseUrl, model, size, quality };
+}
+
+function getErrorMessage(data: unknown, status: number) {
+  const payload = data as { error?: { message?: string }; message?: string } | null;
+  const upstreamMessage =
+    payload?.error?.message ?? payload?.message ?? `Image generation failed with status ${status}.`;
+
+  if (status === 504) {
+    return "Image generation timed out before the upstream API returned a result. Try a smaller image or fewer references.";
+  }
+
+  if (
+    upstreamMessage.includes("stream error") ||
+    upstreamMessage.includes("INTERNAL_ERROR") ||
+    upstreamMessage.includes("received from peer")
+  ) {
+    return "The image API connection was interrupted while uploading or generating. Try again with a smaller image or fewer references.";
+  }
+
+  return upstreamMessage;
 }
 
 function buildPrompt({
@@ -286,10 +309,7 @@ export async function POST(request: NextRequest) {
   if (!response.ok) {
     return NextResponse.json(
       {
-        error:
-          data?.error?.message ??
-          data?.message ??
-          `Image generation failed with status ${response.status}.`
+        error: getErrorMessage(data, response.status)
       },
       { status: response.status }
     );

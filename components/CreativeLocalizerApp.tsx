@@ -793,18 +793,56 @@ function ResultView({
   const [copied, setCopied] = useState(false);
   const logoAssets = "brand" in task.formSettings ? getBrandLogoAssets(task.formSettings.brand) : [];
 
+  async function compressImageBlob(blob: Blob, fileName: string, maxSide = 1600) {
+    if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") {
+      return blob;
+    }
+
+    const imageUrl = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new window.Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = imageUrl;
+      });
+      const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+      if (scale >= 1 && blob.size <= 1_500_000) {
+        return blob;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return blob;
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      const compressedBlob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", 0.88);
+      });
+
+      return compressedBlob ?? blob;
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  }
+
   async function appendImageReference(
     formData: FormData,
     manifest: Array<{ label: string; role: string; fileName: string }>,
-    source: { url?: string; name: string; role: string; label: string }
+    source: { url?: string; name: string; role: string; label: string; keepOriginal?: boolean }
   ) {
     if (!source.url) return;
     const response = await fetch(source.url);
     const blob = await response.blob();
     if (!blob.type.startsWith("image/")) return;
-    const fallbackExtension = blob.type.split("/")[1] || "png";
-    const fileName = source.name.includes(".") ? source.name : `${source.name}.${fallbackExtension}`;
-    formData.append("image", blob, fileName);
+    const uploadBlob = source.keepOriginal ? blob : await compressImageBlob(blob, source.name);
+    const fallbackExtension = uploadBlob.type.split("/")[1] || "jpg";
+    const fileName = source.keepOriginal
+      ? source.name
+      : source.name.replace(/\.[^.]+$/, "") + `-api-reference.${fallbackExtension}`;
+    formData.append("image", uploadBlob, fileName);
     manifest.push({ label: source.label, role: source.role, fileName });
   }
 
@@ -845,11 +883,12 @@ function ResultView({
 
       for (const asset of logoAssets) {
         await appendImageReference(formData, imageManifest, {
-          url: asset.publicPath,
-          name: asset.fileName,
-          role: "required brand logo",
-          label: asset.label
-        });
+        url: asset.publicPath,
+        name: asset.fileName,
+        role: "required brand logo",
+        label: asset.label,
+        keepOriginal: true
+      });
       }
 
       formData.append("imageManifest", JSON.stringify(imageManifest));
