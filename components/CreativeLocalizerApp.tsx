@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { getBrandLogoAssets, type BrandLogoAsset } from "@/lib/brandAssets";
 import {
   BRANDS,
   CLOTHING_STYLES,
@@ -796,7 +797,10 @@ function ResultPage({
 }) {
   const [prompt, setPrompt] = useState(task.finalPrompt);
   const [copied, setCopied] = useState(false);
+  const [copiedLogoId, setCopiedLogoId] = useState<string | null>(null);
+  const [copiedLogoLinkId, setCopiedLogoLinkId] = useState<string | null>(null);
   const t = (key: TextKey) => getText(language, key);
+  const brandLogoAssets = "brand" in task.formSettings ? getBrandLogoAssets(task.formSettings.brand) : [];
   const allAssets = [
     task.uploadedOriginalPoster,
     ...task.uploadedFaceReferenceImages,
@@ -818,6 +822,34 @@ function ResultPage({
     await navigator.clipboard.writeText(prompt);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  function getLogoAssetUrl(asset: BrandLogoAsset) {
+    return `${globalThis.location.origin}${asset.publicPath}`;
+  }
+
+  async function copyLogoImage(asset: BrandLogoAsset) {
+    const response = await fetch(asset.publicPath);
+    const blob = await response.blob();
+    if ("ClipboardItem" in window) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          [blob.type]: blob
+        })
+      ]);
+      setCopiedLogoId(asset.id);
+      globalThis.setTimeout(() => setCopiedLogoId(null), 1400);
+      return;
+    }
+    await navigator.clipboard.writeText(getLogoAssetUrl(asset));
+    setCopiedLogoLinkId(asset.id);
+    globalThis.setTimeout(() => setCopiedLogoLinkId(null), 1400);
+  }
+
+  async function copyLogoLink(asset: BrandLogoAsset) {
+    await navigator.clipboard.writeText(getLogoAssetUrl(asset));
+    setCopiedLogoLinkId(asset.id);
+    globalThis.setTimeout(() => setCopiedLogoLinkId(null), 1400);
   }
 
   return (
@@ -874,6 +906,50 @@ function ResultPage({
           <div className="mt-4 flex flex-wrap gap-2">
             <SecondaryButton icon={Download}>{t("downloadArchivedResult")}</SecondaryButton>
           </div>
+        </Panel>
+        <Panel title={t("brandLogoAssets")} description={t("brandLogoAssetsDesc")}>
+          {brandLogoAssets.length ? (
+            <div className="grid gap-3">
+              {brandLogoAssets.map((asset) => (
+                <div key={asset.id} className="rounded-lg border border-black/10 bg-white p-3">
+                  <div className={cn("grid min-h-24 place-items-center rounded-md border border-black/10 p-4", asset.previewClassName)}>
+                    <Image
+                      src={asset.publicPath}
+                      alt={asset.label}
+                      width={420}
+                      height={120}
+                      className="max-h-20 w-auto max-w-full object-contain"
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-sm font-semibold text-ink">{asset.label}</div>
+                    <p className="mt-1 text-xs leading-5 text-graphite/70">{asset.copyGuidance}</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <SecondaryButton icon={Copy} onClick={() => copyLogoImage(asset)}>
+                      {copiedLogoId === asset.id ? t("logoCopied") : t("copyLogoImage")}
+                    </SecondaryButton>
+                    <SecondaryButton icon={Clipboard} onClick={() => copyLogoLink(asset)}>
+                      {copiedLogoLinkId === asset.id ? t("logoLinkCopied") : t("copyLogoLink")}
+                    </SecondaryButton>
+                    <SecondaryButton icon={ChevronRight} onClick={() => window.open(asset.publicPath, "_blank", "noopener,noreferrer")}>
+                      {t("openLogo")}
+                    </SecondaryButton>
+                    <a
+                      className="focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-ink transition hover:bg-linen"
+                      href={asset.publicPath}
+                      download={asset.fileName}
+                    >
+                      <Download size={16} />
+                      {t("downloadLogo")}
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-graphite/70">{t("noBrandLogoAsset")}</p>
+          )}
         </Panel>
         <Panel title={t("taskSettings")}>
           <div className="grid gap-2 text-sm">

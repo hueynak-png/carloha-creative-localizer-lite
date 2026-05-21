@@ -3,6 +3,7 @@ import {
   LOCALIZATION_LEVELS,
   TEXT_HANDLING_MODES
 } from "@/lib/constants";
+import { getBrandLogoPromptInstruction } from "@/lib/brandAssets";
 import type {
   CreateNewSettings,
   GenerationProvider,
@@ -28,6 +29,7 @@ function generateLocalizePrompt(request: GenerationRequest) {
       "Keep the brand presentation premium, clean, and suitable for internal automotive campaign design.",
       COMPLIANCE_RULE
     ]),
+    section("Required Logo Asset", [getBrandLogoPromptInstruction(settings.brand)]),
     section("Allowed Localization Changes", [
       "You may change the background to a Nigerian setting.",
       "You may replace all people with Nigerian / West African Black people.",
@@ -66,6 +68,7 @@ function generateCreatePrompt(request: GenerationRequest) {
   return [
     "Create a new premium automotive poster for Carloha's Nigerian market.",
     section("Mandatory Compliance Rule", [COMPLIANCE_RULE]),
+    section("Required Logo Asset", [getBrandLogoPromptInstruction(settings.brand)]),
     section("Creative Brief", [
       `Brand: ${settings.brand}`,
       `Vehicle model: ${settings.vehicleModel || "Use the selected campaign vehicle"}`,
