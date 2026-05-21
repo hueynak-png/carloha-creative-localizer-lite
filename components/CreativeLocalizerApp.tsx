@@ -124,8 +124,9 @@ function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function makeAssets(files: FileList | null, type: UploadedAsset["type"], limit: number) {
+function makeAssets(files: FileList | File[] | null, type: UploadedAsset["type"], limit: number) {
   return Array.from(files ?? [])
+    .filter((file) => file.type.startsWith("image/"))
     .slice(0, limit)
     .map((file) => ({
       id: `${type}-${file.name}-${file.lastModified}`,
@@ -238,7 +239,8 @@ function UploadBox({
   maxFiles,
   files,
   onFiles,
-  notice
+  notice,
+  language
 }: {
   title: string;
   description: string;
@@ -246,16 +248,67 @@ function UploadBox({
   files: UploadedAsset[];
   onFiles: (files: UploadedAsset[]) => void;
   notice?: string;
+  language: Language;
 }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const t = (key: TextKey) => getText(language, key);
+
+  function addFiles(fileList: FileList | File[] | null) {
+    const slotsAvailable = Math.max(maxFiles - files.length, 0);
+    const newAssets = makeAssets(fileList, "reference", maxFiles === 1 ? 1 : slotsAvailable);
+    if (!newAssets.length) return;
+    onFiles(maxFiles === 1 ? newAssets : [...files, ...newAssets].slice(0, maxFiles));
+  }
+
+  function getClipboardImageFiles(event: React.ClipboardEvent<HTMLDivElement>) {
+    const pastedFiles = Array.from(event.clipboardData.files).filter((file) =>
+      file.type.startsWith("image/")
+    );
+    if (pastedFiles.length) return pastedFiles;
+
+    return Array.from(event.clipboardData.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+  }
+
   return (
-    <div className="rounded-lg border border-dashed border-black/20 bg-white/70 p-4">
+    <div
+      role="button"
+      tabIndex={0}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsDragging(false);
+        addFiles(event.dataTransfer.files);
+      }}
+      onPaste={(event) => {
+        const pastedImages = getClipboardImageFiles(event);
+        if (!pastedImages.length) return;
+        event.preventDefault();
+        addFiles(pastedImages);
+      }}
+      className={cn(
+        "focus-ring rounded-lg border border-dashed p-4 transition",
+        isDragging
+          ? "border-carloha-red bg-carloha-sky shadow-soft"
+          : "border-black/20 bg-white/70"
+      )}
+    >
       <div className="flex items-start gap-3">
-        <div className="rounded-md bg-carloha-sky p-2 text-carloha-leaf">
+        <div className="rounded-md bg-carloha-sky p-2 text-carloha-red">
           <Upload size={18} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink">{title}</div>
           <p className="mt-1 text-xs leading-5 text-graphite/70">{description}</p>
+          <p className="mt-2 rounded-md bg-white px-3 py-2 text-xs leading-5 text-graphite/70">
+            {isDragging ? t("uploadActiveHint") : t("uploadInteractionHint")}
+          </p>
           {notice ? (
             <p className="mt-2 rounded-md bg-carloha-gold/10 px-3 py-2 text-xs leading-5 text-graphite">
               {notice}
@@ -266,7 +319,10 @@ function UploadBox({
             accept="image/*"
             multiple={maxFiles > 1}
             className="mt-3 block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-ink file:px-3 file:py-2 file:text-xs file:font-medium file:text-white"
-            onChange={(event) => onFiles(makeAssets(event.target.files, "reference", maxFiles))}
+            onChange={(event) => {
+              addFiles(event.target.files);
+              event.currentTarget.value = "";
+            }}
           />
           {files.length ? (
             <div className="mt-3 grid gap-2">
@@ -651,9 +707,9 @@ function LocalizeForm({
           </div>
         </div>
         <div className="space-y-4">
-          <UploadBox title={t("originalPosterImage")} description={t("originalPosterDesc")} maxFiles={1} files={originalPoster} onFiles={(files) => setOriginalPoster(files.map((file) => ({ ...file, type: "original" })))} />
-          <UploadBox title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
-          <UploadBox title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
+          <UploadBox language={language} title={t("originalPosterImage")} description={t("originalPosterDesc")} maxFiles={1} files={originalPoster} onFiles={(files) => setOriginalPoster(files.map((file) => ({ ...file, type: "original" })))} />
+          <UploadBox language={language} title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
+          <UploadBox language={language} title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
         </div>
       </div>
     </Panel>
@@ -715,8 +771,8 @@ function CreatePosterForm({
             </div>
             {COMPLIANCE_RULE}
           </div>
-          <UploadBox title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
-          <UploadBox title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
+          <UploadBox language={language} title={t("faceReferenceImages")} description={t("faceReferenceDesc")} maxFiles={2} files={faceReferences} onFiles={(files) => setFaceReferences(files.map((file) => ({ ...file, type: "face" })))} notice={FACE_REFERENCE_NOTICE} />
+          <UploadBox language={language} title={t("additionalReferenceImages")} description={t("additionalReferenceDesc")} maxFiles={2} files={additionalReferences} onFiles={setAdditionalReferences} />
         </div>
       </div>
     </Panel>
@@ -791,7 +847,7 @@ function ResultPage({
       </Panel>
       <div className="space-y-6">
         <Panel title={t("manualResultUpload")} description={t("manualResultUploadDesc")}>
-          <UploadBox title={t("generatedResultImages")} description={t("generatedResultDesc")} maxFiles={8} files={manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages} onFiles={syncResults} />
+          <UploadBox language={language} title={t("generatedResultImages")} description={t("generatedResultDesc")} maxFiles={8} files={manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages} onFiles={syncResults} />
           <div className="mt-4 grid gap-3">
             {(manualResults.length ? manualResults : task.manuallyUploadedGeneratedImages).map((asset) => (
               <div key={asset.id} className="flex items-center justify-between rounded-md border border-black/10 bg-linen p-3">
