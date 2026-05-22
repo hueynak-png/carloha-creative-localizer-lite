@@ -247,6 +247,8 @@ function buildPrompt({
 }
 
 function normalizeImages(data: unknown) {
+  if (!data || typeof data !== "object") return [];
+
   const response = data as {
     data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
   };
