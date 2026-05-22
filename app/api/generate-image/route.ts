@@ -452,6 +452,8 @@ function extractImageUrlsFromText(text: string) {
 }
 
 function normalizeChatCompletionImages(data: unknown) {
+  if (!data || typeof data !== "object") return [];
+
   const directImages = normalizeImages(data);
   if (directImages.length) return directImages;
 
