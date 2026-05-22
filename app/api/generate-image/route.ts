@@ -81,6 +81,15 @@ function getConfigError(model: string) {
   ].join(" ");
 }
 
+function isRelayPoolUnavailableMessage(message: string, status?: number) {
+  return (
+    status === 429 ||
+    message.includes("cooling down") ||
+    message.includes("provider codex") ||
+    message.includes("All credentials")
+  );
+}
+
 function getErrorMessage(data: unknown, status: number, text = "", model = "") {
   const payload = data as { error?: { message?: string }; message?: string } | null;
   const upstreamMessage =
@@ -101,15 +110,11 @@ function getErrorMessage(data: unknown, status: number, text = "", model = "") {
     return "The image API connection was interrupted while uploading or generating. Try again with a smaller image or fewer references.";
   }
 
-  if (
-    upstreamMessage.includes("cooling down") ||
-    upstreamMessage.includes("provider codex") ||
-    upstreamMessage.includes("All credentials")
-  ) {
+  if (isRelayPoolUnavailableMessage(upstreamMessage, status)) {
     const configError = model ? getConfigError(model) : null;
     return configError
       ? `${configError} Upstream returned: ${upstreamMessage}`
-      : `The configured relay rejected the selected model/provider pool. Upstream returned: ${upstreamMessage}`;
+      : `The image request was sent with model "${model || "unknown"}", but the relay's internal provider pool is temporarily unavailable. Upstream returned: ${upstreamMessage}`;
   }
 
   return upstreamMessage;
@@ -130,16 +135,24 @@ function createDiagnostics({
   status?: number;
   text?: string;
 }): ImageApiDiagnostics {
+  const bodyPreview = text?.trim().slice(0, 600) || undefined;
+  const configError = getConfigError(model);
+  const relayPoolUnavailable = bodyPreview
+    ? isRelayPoolUnavailableMessage(bodyPreview, status)
+    : status === 429;
+
   return {
     endpoint,
     model,
     baseUrlHost: getBaseUrlHost(baseUrl),
     imageCount,
     status,
-    upstreamBodyPreview: text?.trim().slice(0, 600) || undefined,
+    upstreamBodyPreview: bodyPreview,
     suggestion:
-      getConfigError(model) ??
-      "If this uses a third-party relay, confirm that the relay supports /v1/images/edits with multipart image uploads."
+      configError ??
+      (relayPoolUnavailable
+        ? `The app sent "${model}" to the image API. The relay appears to map it to an internal provider pool that is rate-limited or cooling down. Check the relay's model mapping, provider quota, or try again after the pool recovers.`
+        : "If this uses a third-party relay, confirm that the relay supports /v1/images/edits with multipart image uploads.")
   };
 }
 
