@@ -40,10 +40,20 @@ import type {
 
 type ViewKey = "home" | "localize" | "create" | "result";
 
-const currentUser = {
-  id: "demo-admin",
-  name: "Carloha Design Admin"
-};
+// TODO: Replace with real authentication (e.g., Supabase Auth).
+// When INTERNAL_API_KEY is set, the API route requires x-api-key header.
+// This placeholder should be replaced with a proper auth flow.
+function getCurrentUser(): { id: string; name: string } {
+  if (typeof window !== "undefined") {
+    const stored = window.localStorage.getItem("carloha-localizer-user");
+    if (stored) {
+      try {
+        return JSON.parse(stored) as { id: string; name: string };
+      } catch { /* fall through */ }
+    }
+  }
+  return { id: "anonymous", name: "Guest User" };
+}
 
 const initialLocalizeSettings: LocalizeExistingSettings = {
   brand: "Chery",
@@ -376,7 +386,7 @@ function PageShell({
           <div className="flex items-center gap-3">
             <LanguageToggle language={language} onLanguageChange={onLanguageChange} />
             <div className="hidden rounded-md border border-black/10 bg-white px-3 py-2 text-sm md:block">
-              {currentUser.name}
+              {getCurrentUser().name}
             </div>
           </div>
         </div>
@@ -498,44 +508,79 @@ export function CreativeLocalizerApp() {
   const [localizeSettings, setLocalizeSettings] =
     useState<LocalizeExistingSettings>(initialLocalizeSettings);
   const [createSettings, setCreateSettings] = useState<CreateNewSettings>(initialCreateSettings);
-  const [originalPoster, setOriginalPoster] = useState<UploadedAsset[]>([]);
-  const [referenceImages, setReferenceImages] = useState<UploadedAsset[]>([]);
+  const [originalPoster, setOriginalPosterRaw] = useState<UploadedAsset[]>([]);
+  const [referenceImages, setReferenceImagesRaw] = useState<UploadedAsset[]>([]);
+  const [taskError, setTaskError] = useState<string | null>(null);
+
+  // Revoke old Object URLs to prevent memory leaks
+  function setOriginalPoster(next: UploadedAsset[]) {
+    setOriginalPosterRaw((prev) => {
+      prev.forEach((a) => { if (a.url?.startsWith("blob:")) URL.revokeObjectURL(a.url); });
+      return next;
+    });
+  }
+  function setReferenceImages(next: UploadedAsset[]) {
+    setReferenceImagesRaw((prev) => {
+      prev.forEach((a) => { if (a.url?.startsWith("blob:")) URL.revokeObjectURL(a.url); });
+      return next;
+    });
+  }
 
   useEffect(() => {
-    const savedLanguage = window.localStorage.getItem("carloha-localizer-language");
-    if (savedLanguage === "en" || savedLanguage === "zh") {
-      setLanguage(savedLanguage);
-    }
+    try {
+      const savedLanguage = window.localStorage.getItem("carloha-localizer-language");
+      if (savedLanguage === "en" || savedLanguage === "zh") {
+        setLanguage(savedLanguage);
+        document.documentElement.lang = savedLanguage === "zh" ? "zh-CN" : "en";
+      }
+    } catch { /* localStorage unavailable */ }
   }, []);
 
   function changeLanguage(nextLanguage: Language) {
     setLanguage(nextLanguage);
-    window.localStorage.setItem("carloha-localizer-language", nextLanguage);
+    document.documentElement.lang = nextLanguage === "zh" ? "zh-CN" : "en";
+    try {
+      window.localStorage.setItem("carloha-localizer-language", nextLanguage);
+    } catch { /* localStorage unavailable */ }
   }
 
   async function createTask(workflowType: WorkflowType) {
-    const provider = getActiveGenerationProvider();
-    const settings = workflowType === "localize_existing" ? localizeSettings : createSettings;
-    const result = await provider.generate({
-      workflowType,
-      userId: currentUser.id,
-      settings,
-      originalPoster: originalPoster[0] ?? null,
-      faceReferences: [],
-      additionalReferences: referenceImages
-    });
-    const now = new Date().toISOString();
-    setTask({
-      id: `task-${Date.now()}`,
-      ...result.taskDraft,
-      createdAt: now,
-      updatedAt: now
-    });
-    setView("result");
+    setTaskError(null);
+    try {
+      const provider = getActiveGenerationProvider();
+      const settings = workflowType === "localize_existing" ? localizeSettings : createSettings;
+      const user = getCurrentUser();
+      const result = await provider.generate({
+        workflowType,
+        userId: user.id,
+        settings,
+        originalPoster: originalPoster[0] ?? null,
+        faceReferences: [],
+        additionalReferences: referenceImages
+      });
+      const now = new Date().toISOString();
+      setTask({
+        id: `task-${Date.now()}`,
+        ...result.taskDraft,
+        createdAt: now,
+        updatedAt: now
+      });
+      setView("result");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Task creation failed unexpectedly.";
+      setTaskError(message);
+      console.error("[createTask] Error:", err);
+    }
   }
 
   return (
     <PageShell language={language} onLanguageChange={changeLanguage} onHome={() => setView("home")}>
+      {taskError && (
+        <div className="mx-auto mb-4 max-w-2xl rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong>Error:</strong> {taskError}
+          <button type="button" onClick={() => setTaskError(null)} className="ml-2 underline">Dismiss</button>
+        </div>
+      )}
       {view === "home" ? <HomeView language={language} onOpen={setView} /> : null}
       {view === "localize" ? (
         <LocalizeView

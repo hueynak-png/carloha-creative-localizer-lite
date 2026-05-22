@@ -4,6 +4,33 @@ import { Buffer } from "node:buffer";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+// --- Simple in-memory rate limiter ---
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // max requests per window per IP
+const rateLimitMap = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = rateLimitMap.get(ip) ?? [];
+  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= RATE_LIMIT_MAX_REQUESTS) {
+    rateLimitMap.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  rateLimitMap.set(ip, recent);
+  return false;
+}
+// Periodically clean up stale entries (every 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  rateLimitMap.forEach((timestamps, ip) => {
+    const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+    if (recent.length === 0) rateLimitMap.delete(ip);
+    else rateLimitMap.set(ip, recent);
+  });
+}, 300_000);
+
 type LogoAssetPayload = {
   label?: string;
   publicPath?: string;
@@ -772,6 +799,27 @@ async function createChatCompletionsBody({
 
 export async function POST(request: NextRequest) {
   try {
+    // --- Rate Limiting ---
+    const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    if (isRateLimited(clientIp)) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    // --- Authentication ---
+    const internalApiKey = process.env.INTERNAL_API_KEY;
+    if (internalApiKey) {
+      const providedKey = request.headers.get("x-api-key");
+      if (providedKey !== internalApiKey) {
+        return NextResponse.json(
+          { error: "Unauthorized. Provide a valid x-api-key header." },
+          { status: 401 }
+        );
+      }
+    }
+
     if (!isApiEnabled()) {
       return NextResponse.json(
         { error: "Image API generation is disabled for this deployment." },
@@ -804,6 +852,26 @@ export async function POST(request: NextRequest) {
       files = formData
         .getAll("image")
         .filter((item): item is File => item instanceof File && item.type.startsWith("image/"));
+
+      // --- File size validation ---
+      const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB per file
+      const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB total
+      let totalSize = 0;
+      for (const file of files) {
+        if (file.size > MAX_FILE_SIZE) {
+          return NextResponse.json(
+            { error: `File "${file.name}" exceeds the 20MB size limit.` },
+            { status: 413 }
+          );
+        }
+        totalSize += file.size;
+      }
+      if (totalSize > MAX_TOTAL_SIZE) {
+        return NextResponse.json(
+          { error: "Total upload size exceeds the 100MB limit." },
+          { status: 413 }
+        );
+      }
     } else {
       const payload = (await request.json()) as ImageGenerationPayload;
       prompt = payload.prompt ?? "";
@@ -812,6 +880,14 @@ export async function POST(request: NextRequest) {
 
     if (!prompt.trim()) {
       return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+    }
+
+    const MAX_PROMPT_LENGTH = 10_000;
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      return NextResponse.json(
+        { error: `Prompt exceeds the maximum length of ${MAX_PROMPT_LENGTH} characters.` },
+        { status: 400 }
+      );
     }
 
     const configError = getConfigError(model);
@@ -950,20 +1026,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (!response.ok) {
-      return NextResponse.json(
-        {
-          error: getErrorMessage(data, response.status, parsed.text, model),
-          diagnostics: createDiagnostics({
-            endpoint,
-            model,
-            baseUrl,
-            imageCount: files.length,
-            status: response.status,
-            text: parsed.text
-          })
-        },
-        { status: response.status }
-      );
+      const errorPayload: Record<string, unknown> = {
+        error: getErrorMessage(data, response.status, parsed.text, model)
+      };
+      if (process.env.NODE_ENV === "development") {
+        errorPayload.diagnostics = createDiagnostics({
+          endpoint,
+          model,
+          baseUrl,
+          imageCount: files.length,
+          status: response.status,
+          text: parsed.text
+        });
+      }
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
     const images =
@@ -972,25 +1048,24 @@ export async function POST(request: NextRequest) {
         : normalizeImages(data);
 
     if (!images.length) {
-      return NextResponse.json(
-        {
-          error:
-            endpoint === "chat/completions"
-              ? "The chat-completions relay returned successfully, but no image URL or base64 image was found in the response."
-              : "The image API returned successfully, but no generated image was found in the response.",
-          diagnostics: createDiagnostics({
-            endpoint,
-            model,
-            baseUrl,
-            imageCount: files.length,
-            status: response.status,
-            text: parsed.text
-          }),
-          responseShape: summarizeResponseShape(data),
-          raw: data
-        },
-        { status: 502 }
-      );
+      const noImagePayload: Record<string, unknown> = {
+        error:
+          endpoint === "chat/completions"
+            ? "The chat-completions relay returned successfully, but no image URL or base64 image was found in the response."
+            : "The image API returned successfully, but no generated image was found in the response."
+      };
+      if (process.env.NODE_ENV === "development") {
+        noImagePayload.diagnostics = createDiagnostics({
+          endpoint,
+          model,
+          baseUrl,
+          imageCount: files.length,
+          status: response.status,
+          text: parsed.text
+        });
+        noImagePayload.responseShape = summarizeResponseShape(data);
+      }
+      return NextResponse.json(noImagePayload, { status: 502 });
     }
 
     return NextResponse.json({
@@ -998,8 +1073,7 @@ export async function POST(request: NextRequest) {
       model,
       size,
       quality,
-      endpoint,
-      raw: data
+      endpoint
     });
   } catch (error) {
     const message =

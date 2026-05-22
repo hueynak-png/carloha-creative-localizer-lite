@@ -12,10 +12,14 @@ export const openAIImageProvider: GenerationProvider = {
   id: "openai_api",
   label: "OpenAI API",
   mode: "api",
-  enabled: isOpenAIImageProviderEnabled(),
-  helperText: isOpenAIImageProviderEnabled()
-    ? "Generate images inside the web app through the configured image API."
-    : "API-based image generation requires provider environment variables.",
+  get enabled() {
+    return isOpenAIImageProviderEnabled();
+  },
+  get helperText() {
+    return isOpenAIImageProviderEnabled()
+      ? "Generate images inside the web app through the configured image API."
+      : "API-based image generation requires provider environment variables.";
+  },
   async generate(request) {
     if (!isOpenAIImageProviderEnabled()) {
       throw new Error(OPENAI_PROVIDER_DISABLED_MESSAGE);
