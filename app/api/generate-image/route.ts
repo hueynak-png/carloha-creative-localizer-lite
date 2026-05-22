@@ -58,12 +58,14 @@ function getOpenAIImageConfig() {
   const apiKey = process.env.KAOPU_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
   const baseUrl = (
     process.env.KAOPU_IMAGE_BASE_URL ||
-    process.env.OPENAI_BASE_URL ||
+    (process.env.KAOPU_IMAGE_API_KEY
+      ? "https://image-api.kaopuapi.xyz/v1"
+      : process.env.OPENAI_BASE_URL) ||
     "https://api.openai.com/v1"
   ).replace(/\/$/, "");
   const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
   const size = process.env.OPENAI_IMAGE_SIZE || "1024x1024";
-  const quality = process.env.OPENAI_IMAGE_QUALITY || "auto";
+  const quality = process.env.OPENAI_IMAGE_QUALITY || "high";
 
   return { apiKey, baseUrl, model, size, quality };
 }
@@ -600,50 +602,30 @@ async function requestKaopuDualGenerations({
     })
   ]);
 
-  const attemptPromises = [
-    requestAndParseImageGeneration({
-      apiKey,
-      baseUrl,
-      endpoint: "generations",
-      body: urlBody,
-      label: "kaopu_url"
-    }),
-    requestAndParseImageGeneration({
-      apiKey,
-      baseUrl,
-      endpoint: "generations",
-      body: base64Body,
-      label: "kaopu_base64"
-    })
-  ];
-
-  const attempts: ImageApiAttempt[] = [];
-  const firstUsableAttempt = await new Promise<ImageApiAttempt | null>((resolve) => {
-    let pending = attemptPromises.length;
-    let firstOkAttempt: ImageApiAttempt | null = null;
-
-    attemptPromises.forEach((attemptPromise) => {
-      attemptPromise
-        .then((attempt) => {
-          attempts.push(attempt);
-          if (attempt.response.ok && normalizeImages(attempt.data).length > 0) {
-            resolve(attempt);
-            return;
-          }
-          if (attempt.response.ok && !firstOkAttempt) {
-            firstOkAttempt = attempt;
-          }
-        })
-        .finally(() => {
-          pending -= 1;
-          if (pending === 0) {
-            resolve(firstOkAttempt);
-          }
-        });
-    });
+  const urlAttempt = await requestAndParseImageGeneration({
+    apiKey,
+    baseUrl,
+    endpoint: "generations",
+    body: urlBody,
+    label: "kaopu_url"
   });
 
-  if (firstUsableAttempt) return firstUsableAttempt;
+  if (
+    urlAttempt.response.status === 429 ||
+    (urlAttempt.response.ok && normalizeImages(urlAttempt.data).length > 0)
+  ) {
+    return urlAttempt;
+  }
+
+  const base64Attempt = await requestAndParseImageGeneration({
+    apiKey,
+    baseUrl,
+    endpoint: "generations",
+    body: base64Body,
+    label: "kaopu_base64"
+  });
+
+  const attempts = [urlAttempt, base64Attempt];
 
   return (
     attempts.find((attempt) => attempt.response.ok && normalizeImages(attempt.data).length > 0) ??
