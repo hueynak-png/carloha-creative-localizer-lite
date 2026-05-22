@@ -528,13 +528,34 @@ async function requestAndParseImageGeneration({
   body: BodyInit;
   label: string;
 }): Promise<ImageApiAttempt> {
-  const response = await requestImageGeneration({
-    apiKey,
-    baseUrl,
-    endpoint,
-    body
-  });
-  const parsed = await parseResponseBody(response);
+  let response: Response;
+  let parsed: ParsedResponseBody;
+
+  try {
+    response = await requestImageGeneration({
+      apiKey,
+      baseUrl,
+      endpoint,
+      body
+    });
+    parsed = await parseResponseBody(response);
+  } catch (error) {
+    const message =
+      error instanceof Error && error.name === "AbortError"
+        ? "Image generation timed out while waiting for the upstream API."
+        : error instanceof Error
+          ? error.message
+          : "Image generation failed before the upstream API returned a response.";
+    const fallbackData = { error: { message } };
+    response = Response.json(fallbackData, {
+      status: error instanceof Error && error.name === "AbortError" ? 504 : 502
+    });
+    parsed = {
+      json: fallbackData,
+      text: JSON.stringify(fallbackData)
+    };
+  }
+
   return {
     label,
     endpoint,
@@ -579,7 +600,7 @@ async function requestKaopuDualGenerations({
     })
   ]);
 
-  const attempts = await Promise.all([
+  const attemptPromises = [
     requestAndParseImageGeneration({
       apiKey,
       baseUrl,
@@ -594,7 +615,35 @@ async function requestKaopuDualGenerations({
       body: base64Body,
       label: "kaopu_base64"
     })
-  ]);
+  ];
+
+  const attempts: ImageApiAttempt[] = [];
+  const firstUsableAttempt = await new Promise<ImageApiAttempt | null>((resolve) => {
+    let pending = attemptPromises.length;
+    let firstOkAttempt: ImageApiAttempt | null = null;
+
+    attemptPromises.forEach((attemptPromise) => {
+      attemptPromise
+        .then((attempt) => {
+          attempts.push(attempt);
+          if (attempt.response.ok && normalizeImages(attempt.data).length > 0) {
+            resolve(attempt);
+            return;
+          }
+          if (attempt.response.ok && !firstOkAttempt) {
+            firstOkAttempt = attempt;
+          }
+        })
+        .finally(() => {
+          pending -= 1;
+          if (pending === 0) {
+            resolve(firstOkAttempt);
+          }
+        });
+    });
+  });
+
+  if (firstUsableAttempt) return firstUsableAttempt;
 
   return (
     attempts.find((attempt) => attempt.response.ok && normalizeImages(attempt.data).length > 0) ??
