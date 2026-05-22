@@ -911,6 +911,7 @@ function ResultView({
         images?: Array<{ id: string; url: string }>;
         model?: string;
         quality?: string;
+        responseShape?: unknown;
       } = {};
       try {
         data = responseText ? JSON.parse(responseText) : {};
@@ -930,7 +931,14 @@ function ResultView({
               .filter(Boolean)
               .join(" ")
           : "";
-        throw new Error([data.error ?? "Image generation failed.", diagnosticText].filter(Boolean).join(" "));
+        const responseShapeText = data.responseShape
+          ? ` Response shape: ${JSON.stringify(data.responseShape)}`
+          : "";
+        throw new Error(
+          [data.error ?? "Image generation failed.", diagnosticText, responseShapeText]
+            .filter(Boolean)
+            .join(" ")
+        );
       }
 
       const generatedImages: UploadedAsset[] = (data.images ?? []).map(
