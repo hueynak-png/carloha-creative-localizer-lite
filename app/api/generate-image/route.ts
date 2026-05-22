@@ -41,7 +41,8 @@ type ImageApiDiagnostics = {
 function isApiEnabled() {
   return (
     process.env.GENERATION_PROVIDER === "openai_api" ||
-    process.env.NEXT_PUBLIC_GENERATION_PROVIDER === "openai_api"
+    process.env.NEXT_PUBLIC_GENERATION_PROVIDER === "openai_api" ||
+    Boolean(process.env.KAOPU_IMAGE_API_KEY || process.env.OPENAI_API_KEY)
   );
 }
 

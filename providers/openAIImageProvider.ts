@@ -2,10 +2,10 @@ import type { GenerationProvider } from "@/lib/types";
 import { generatePromptForRequest } from "@/providers/manualChatGPTProvider";
 
 const OPENAI_PROVIDER_DISABLED_MESSAGE =
-  "OpenAI API image generation is not enabled. Set NEXT_PUBLIC_GENERATION_PROVIDER=openai_api and configure server OpenAI image environment variables.";
+  "API image generation is not enabled. Configure the server image API environment variables.";
 
 export function isOpenAIImageProviderEnabled() {
-  return process.env.NEXT_PUBLIC_GENERATION_PROVIDER === "openai_api";
+  return process.env.NEXT_PUBLIC_GENERATION_PROVIDER !== "manual_chatgpt_web";
 }
 
 export const openAIImageProvider: GenerationProvider = {
