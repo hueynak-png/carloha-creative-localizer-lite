@@ -249,7 +249,7 @@ function normalizeImages(data: unknown) {
     data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
   };
 
-  return (response.data ?? [])
+  const openAIStyleImages = (response.data ?? [])
     .map((item, index) => {
       if (item.b64_json) {
         return {
@@ -268,6 +268,51 @@ function normalizeImages(data: unknown) {
       return null;
     })
     .filter(Boolean);
+
+  if (openAIStyleImages.length) return openAIStyleImages;
+
+  const urls = new Set<string>();
+  collectImageUrls(data, urls);
+  return Array.from(urls).map((url, index) => ({
+    id: `api-image-${Date.now()}-${index}`,
+    url,
+    revisedPrompt: null
+  }));
+}
+
+function stripDataUrl(value: string) {
+  return value.startsWith("data:image/") ? value.split(",", 2)[1] : value;
+}
+
+function looksLikeBase64Image(value: string) {
+  const stripped = stripDataUrl(value).replace(/\s/g, "");
+  return stripped.length > 100 && /^[A-Za-z0-9+/=]+$/.test(stripped);
+}
+
+function collectImageUrls(value: unknown, urls: Set<string>) {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectImageUrls(item, urls));
+    return;
+  }
+
+  if (!value || typeof value !== "object") return;
+
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof item === "string") {
+      if ((key === "url" || key === "image_url") && item) {
+        urls.add(item);
+        continue;
+      }
+      if (
+        ["b64_json", "base64", "image_base64", "data"].includes(key) &&
+        looksLikeBase64Image(item)
+      ) {
+        urls.add(`data:image/png;base64,${stripDataUrl(item)}`);
+        continue;
+      }
+    }
+    collectImageUrls(item, urls);
+  }
 }
 
 function extractImageUrlsFromText(text: string) {
@@ -458,12 +503,13 @@ async function createKaopuGenerationsBody({
     model,
     prompt,
     image: images,
-    size,
-    quality,
-    n: 1
+    size
   };
   if (responseFormat) {
     payload.response_format = responseFormat;
+  } else {
+    payload.quality = quality;
+    payload.n = 1;
   }
 
   return JSON.stringify(payload);
