@@ -900,6 +900,14 @@ function ResultView({
       const responseText = await response.text();
       let data: {
         error?: string;
+        diagnostics?: {
+          endpoint?: string;
+          model?: string;
+          baseUrlHost?: string;
+          imageCount?: number;
+          status?: number;
+          suggestion?: string;
+        };
         images?: Array<{ id: string; url: string }>;
         model?: string;
         quality?: string;
@@ -912,7 +920,17 @@ function ResultView({
         };
       }
       if (!response.ok) {
-        throw new Error(data.error ?? "Image generation failed.");
+        const diagnosticText = data.diagnostics
+          ? [
+              data.diagnostics.suggestion,
+              data.diagnostics.model ? `Model: ${data.diagnostics.model}` : undefined,
+              data.diagnostics.endpoint ? `Endpoint: /images/${data.diagnostics.endpoint}` : undefined,
+              data.diagnostics.status ? `Status: ${data.diagnostics.status}` : undefined
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : "";
+        throw new Error([data.error ?? "Image generation failed.", diagnosticText].filter(Boolean).join(" "));
       }
 
       const generatedImages: UploadedAsset[] = (data.images ?? []).map(

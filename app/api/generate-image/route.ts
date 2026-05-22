@@ -25,6 +25,16 @@ type ParsedResponseBody = {
   text: string;
 };
 
+type ImageApiDiagnostics = {
+  endpoint: "generations" | "edits";
+  model: string;
+  baseUrlHost: string;
+  imageCount: number;
+  status?: number;
+  upstreamBodyPreview?: string;
+  suggestion?: string;
+};
+
 function isApiEnabled() {
   return (
     process.env.GENERATION_PROVIDER === "openai_api" ||
@@ -35,14 +45,43 @@ function isApiEnabled() {
 function getOpenAIImageConfig() {
   const apiKey = process.env.OPENAI_API_KEY;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
+  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
   const size = process.env.OPENAI_IMAGE_SIZE || "1024x1024";
   const quality = process.env.OPENAI_IMAGE_QUALITY || "auto";
 
   return { apiKey, baseUrl, model, size, quality };
 }
 
-function getErrorMessage(data: unknown, status: number, text = "") {
+function getBaseUrlHost(baseUrl: string) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return "invalid-base-url";
+  }
+}
+
+function isLikelyChatOrCodeModel(model: string) {
+  const normalized = model.trim().toLowerCase();
+  if (normalized.includes("image")) return false;
+  return (
+    normalized.includes("codex") ||
+    /^gpt-[45]/.test(normalized) ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4")
+  );
+}
+
+function getConfigError(model: string) {
+  if (!isLikelyChatOrCodeModel(model)) return null;
+
+  return [
+    `OPENAI_IMAGE_MODEL is set to "${model}", which looks like a chat/code model instead of an image model.`,
+    "Use an image-capable model such as gpt-image-1.5, gpt-image-1, or the exact image model name required by your relay."
+  ].join(" ");
+}
+
+function getErrorMessage(data: unknown, status: number, text = "", model = "") {
   const payload = data as { error?: { message?: string }; message?: string } | null;
   const upstreamMessage =
     payload?.error?.message ??
@@ -62,7 +101,46 @@ function getErrorMessage(data: unknown, status: number, text = "") {
     return "The image API connection was interrupted while uploading or generating. Try again with a smaller image or fewer references.";
   }
 
+  if (
+    upstreamMessage.includes("cooling down") ||
+    upstreamMessage.includes("provider codex") ||
+    upstreamMessage.includes("All credentials")
+  ) {
+    const configError = model ? getConfigError(model) : null;
+    return configError
+      ? `${configError} Upstream returned: ${upstreamMessage}`
+      : `The configured relay rejected the selected model/provider pool. Upstream returned: ${upstreamMessage}`;
+  }
+
   return upstreamMessage;
+}
+
+function createDiagnostics({
+  endpoint,
+  model,
+  baseUrl,
+  imageCount,
+  status,
+  text
+}: {
+  endpoint: "generations" | "edits";
+  model: string;
+  baseUrl: string;
+  imageCount: number;
+  status?: number;
+  text?: string;
+}): ImageApiDiagnostics {
+  return {
+    endpoint,
+    model,
+    baseUrlHost: getBaseUrlHost(baseUrl),
+    imageCount,
+    status,
+    upstreamBodyPreview: text?.trim().slice(0, 600) || undefined,
+    suggestion:
+      getConfigError(model) ??
+      "If this uses a third-party relay, confirm that the relay supports /v1/images/edits with multipart image uploads."
+  };
 }
 
 function buildPrompt({
@@ -216,6 +294,8 @@ function createEditFormData({
   formData.append("prompt", prompt);
   formData.append("size", size);
   formData.append("quality", quality);
+  formData.append("input_fidelity", "high");
+  formData.append("output_format", "png");
   formData.append("n", "1");
   if (includeResponseFormat) {
     formData.append("response_format", "b64_json");
@@ -267,6 +347,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
     }
 
+    const configError = getConfigError(model);
+    if (configError && process.env.IMAGE_API_ALLOW_CUSTOM_MODEL !== "true") {
+      return NextResponse.json(
+        {
+          error: configError,
+          diagnostics: createDiagnostics({
+            endpoint: files.length ? "edits" : "generations",
+            model,
+            baseUrl,
+            imageCount: files.length
+          })
+        },
+        { status: 500 }
+      );
+    }
+
     const finalPrompt = buildPrompt({
       prompt: prompt.trim(),
       logoAssets,
@@ -279,11 +375,11 @@ export async function POST(request: NextRequest) {
       prompt: finalPrompt,
       size,
       quality,
-      n: 1,
-      response_format: "b64_json"
+      n: 1
     };
 
     let response: Response;
+    let endpoint: "generations" | "edits" = files.length ? "edits" : "generations";
     if (files.length) {
       response = await requestImageGeneration({
         apiKey,
@@ -295,8 +391,8 @@ export async function POST(request: NextRequest) {
           model,
           size,
           quality,
-          useArrayImageField: false,
-          includeResponseFormat: true
+          useArrayImageField: true,
+          includeResponseFormat: false
         })
       });
     } else {
@@ -311,6 +407,7 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok && response.status === 400) {
       if (files.length) {
+        endpoint = "edits";
         response = await requestImageGeneration({
           apiKey,
           baseUrl,
@@ -321,19 +418,9 @@ export async function POST(request: NextRequest) {
             model,
             size,
             quality,
-            useArrayImageField: true,
+            useArrayImageField: false,
             includeResponseFormat: false
           })
-        });
-        parsed = await parseResponseBody(response);
-        data = parsed.json;
-      } else if (body.response_format) {
-        const fallbackBody = { ...body };
-        delete fallbackBody.response_format;
-        response = await requestImageGeneration({
-          apiKey,
-          baseUrl,
-          body: JSON.stringify(fallbackBody)
         });
         parsed = await parseResponseBody(response);
         data = parsed.json;
@@ -343,7 +430,15 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       return NextResponse.json(
         {
-          error: getErrorMessage(data, response.status, parsed.text)
+          error: getErrorMessage(data, response.status, parsed.text, model),
+          diagnostics: createDiagnostics({
+            endpoint,
+            model,
+            baseUrl,
+            imageCount: files.length,
+            status: response.status,
+            text: parsed.text
+          })
         },
         { status: response.status }
       );
