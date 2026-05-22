@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Buffer } from "node:buffer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,8 +26,10 @@ type ParsedResponseBody = {
   text: string;
 };
 
+type ImageApiEndpoint = "generations" | "edits" | "chat/completions";
+
 type ImageApiDiagnostics = {
-  endpoint: "generations" | "edits";
+  endpoint: ImageApiEndpoint;
   model: string;
   baseUrlHost: string;
   imageCount: number;
@@ -43,13 +46,27 @@ function isApiEnabled() {
 }
 
 function getOpenAIImageConfig() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const apiKey = process.env.KAOPU_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
+  const baseUrl = (
+    process.env.KAOPU_IMAGE_BASE_URL ||
+    process.env.OPENAI_BASE_URL ||
+    "https://api.openai.com/v1"
+  ).replace(/\/$/, "");
   const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
   const size = process.env.OPENAI_IMAGE_SIZE || "1024x1024";
   const quality = process.env.OPENAI_IMAGE_QUALITY || "auto";
 
   return { apiKey, baseUrl, model, size, quality };
+}
+
+function getEndpointMode() {
+  const mode = process.env.IMAGE_API_ENDPOINT_MODE;
+  if (mode === "chat_completions" || mode === "images" || mode === "kaopu_generations") return mode;
+  return "auto";
+}
+
+function isKaopuImageApi(baseUrl: string) {
+  return getBaseUrlHost(baseUrl) === "image-api.kaopuapi.xyz";
 }
 
 function getBaseUrlHost(baseUrl: string) {
@@ -128,7 +145,7 @@ function createDiagnostics({
   status,
   text
 }: {
-  endpoint: "generations" | "edits";
+  endpoint: ImageApiEndpoint;
   model: string;
   baseUrl: string;
   imageCount: number;
@@ -150,6 +167,12 @@ function createDiagnostics({
     upstreamBodyPreview: bodyPreview,
     suggestion:
       configError ??
+      (endpoint === "chat/completions"
+        ? "This request used /v1/chat/completions because the relay exposes the selected image model as a chat endpoint. Confirm that the relay returns a direct image URL or base64 image in the chat response."
+        : undefined) ??
+      (endpoint === "generations" && imageCount > 0
+        ? "This request used /v1/images/generations with reference images in the JSON image array, which matches the Kaopu gpt-image-2 skill package."
+        : undefined) ??
       (relayPoolUnavailable
         ? `The app sent "${model}" to the image API. The relay appears to map it to an internal provider pool that is rate-limited or cooling down. Check the relay's model mapping, provider quota, or try again after the pool recovers.`
         : "If this uses a third-party relay, confirm that the relay supports /v1/images/edits with multipart image uploads.")
@@ -238,6 +261,75 @@ function normalizeImages(data: unknown) {
     .filter(Boolean);
 }
 
+function extractImageUrlsFromText(text: string) {
+  const urls = new Set<string>();
+  const markdownImagePattern = /!\[[^\]]*]\(([^)\s]+)\)/g;
+  const urlPattern = /(https?:\/\/[^\s"'<>)]{8,}|data:image\/[a-zA-Z0-9.+-]+;base64,[a-zA-Z0-9+/=]+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = markdownImagePattern.exec(text))) {
+    urls.add(match[1]);
+  }
+  while ((match = urlPattern.exec(text))) {
+    urls.add(match[1]);
+  }
+
+  return Array.from(urls);
+}
+
+function normalizeChatCompletionImages(data: unknown) {
+  const directImages = normalizeImages(data);
+  if (directImages.length) return directImages;
+
+  const response = data as {
+    choices?: Array<{
+      message?: {
+        content?:
+          | string
+          | Array<{
+              type?: string;
+              text?: string;
+              b64_json?: string;
+              url?: string;
+              image_url?: string | { url?: string };
+            }>;
+      };
+    }>;
+  };
+  const urls = new Set<string>();
+
+  for (const choice of response.choices ?? []) {
+    const content = choice.message?.content;
+    if (typeof content === "string") {
+      extractImageUrlsFromText(content).forEach((url) => urls.add(url));
+      continue;
+    }
+
+    for (const item of content ?? []) {
+      if (item.text) {
+        extractImageUrlsFromText(item.text).forEach((url) => urls.add(url));
+      }
+      if (item.b64_json) {
+        urls.add(`data:image/png;base64,${item.b64_json}`);
+      }
+      if (item.url) {
+        urls.add(item.url);
+      }
+      if (typeof item.image_url === "string") {
+        urls.add(item.image_url);
+      } else if (item.image_url?.url) {
+        urls.add(item.image_url.url);
+      }
+    }
+  }
+
+  return Array.from(urls).map((url, index) => ({
+    id: `api-image-${Date.now()}-${index}`,
+    url,
+    revisedPrompt: null
+  }));
+}
+
 async function parseResponseBody(response: Response): Promise<ParsedResponseBody> {
   const text = await response.text();
   if (!text.trim()) {
@@ -261,7 +353,7 @@ async function requestImageGeneration({
   apiKey: string;
   baseUrl: string;
   body: BodyInit;
-  endpoint?: "generations" | "edits";
+  endpoint?: ImageApiEndpoint;
   timeoutMs?: number;
 }) {
   const controller = new AbortController();
@@ -274,7 +366,11 @@ async function requestImageGeneration({
   }
 
   try {
-    return await fetch(`${baseUrl}/images/${endpoint}`, {
+    const url =
+      endpoint === "chat/completions"
+        ? `${baseUrl}/chat/completions`
+        : `${baseUrl}/images/${endpoint}`;
+    return await fetch(url, {
       method: "POST",
       headers,
       body,
@@ -319,6 +415,90 @@ function createEditFormData({
   return formData;
 }
 
+async function fileToDataUrl(file: File) {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  return `data:${file.type || "application/octet-stream"};base64,${buffer.toString("base64")}`;
+}
+
+async function fileToBase64(file: File) {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  return buffer.toString("base64");
+}
+
+async function createKaopuGenerationsBody({
+  prompt,
+  files,
+  model,
+  size,
+  quality
+}: {
+  prompt: string;
+  files: File[];
+  model: string;
+  size: string;
+  quality: string;
+}) {
+  const images: string[] = [];
+  for (const file of files.slice(0, 8)) {
+    images.push(await fileToBase64(file));
+  }
+
+  return JSON.stringify({
+    model,
+    prompt,
+    image: images,
+    size,
+    quality,
+    n: 1,
+    response_format: "url"
+  });
+}
+
+async function createChatCompletionsBody({
+  prompt,
+  files,
+  model
+}: {
+  prompt: string;
+  files: File[];
+  model: string;
+}) {
+  const content: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail: "high" } }
+  > = [
+    {
+      type: "text",
+      text: [
+        prompt,
+        "Generate one final poster image from this brief and the attached visual references.",
+        "Return the generated image as a direct image URL or base64 image in the response."
+      ].join("\n\n")
+    }
+  ];
+
+  for (const file of files.slice(0, 8)) {
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: await fileToDataUrl(file),
+        detail: "high"
+      }
+    });
+  }
+
+  return JSON.stringify({
+    model,
+    stream: false,
+    messages: [
+      {
+        role: "user",
+        content
+      }
+    ]
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!isApiEnabled()) {
@@ -329,6 +509,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { apiKey, baseUrl, model, size, quality } = getOpenAIImageConfig();
+    const endpointMode = getEndpointMode();
+    const useKaopuGenerations =
+      endpointMode === "kaopu_generations" || (endpointMode === "auto" && isKaopuImageApi(baseUrl));
     if (!apiKey) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY is not configured." },
@@ -366,7 +549,12 @@ export async function POST(request: NextRequest) {
         {
           error: configError,
           diagnostics: createDiagnostics({
-            endpoint: files.length ? "edits" : "generations",
+            endpoint:
+              endpointMode === "chat_completions"
+                ? "chat/completions"
+                : useKaopuGenerations || !files.length
+                  ? "generations"
+                  : "edits",
             model,
             baseUrl,
             imageCount: files.length
@@ -392,8 +580,37 @@ export async function POST(request: NextRequest) {
     };
 
     let response: Response;
-    let endpoint: "generations" | "edits" = files.length ? "edits" : "generations";
-    if (files.length) {
+    let endpoint: ImageApiEndpoint =
+      endpointMode === "chat_completions"
+        ? "chat/completions"
+        : useKaopuGenerations || !files.length
+          ? "generations"
+          : "edits";
+    if (endpointMode === "chat_completions") {
+      response = await requestImageGeneration({
+        apiKey,
+        baseUrl,
+        endpoint,
+        body: await createChatCompletionsBody({
+          prompt: finalPrompt,
+          files,
+          model
+        })
+      });
+    } else if (useKaopuGenerations) {
+      response = await requestImageGeneration({
+        apiKey,
+        baseUrl,
+        endpoint: "generations",
+        body: await createKaopuGenerationsBody({
+          prompt: finalPrompt,
+          files,
+          model,
+          size,
+          quality
+        })
+      });
+    } else if (files.length) {
       response = await requestImageGeneration({
         apiKey,
         baseUrl,
@@ -419,7 +636,7 @@ export async function POST(request: NextRequest) {
     let data = parsed.json;
 
     if (!response.ok && response.status === 400) {
-      if (files.length) {
+      if (endpointMode !== "chat_completions" && !useKaopuGenerations && files.length) {
         endpoint = "edits";
         response = await requestImageGeneration({
           apiKey,
@@ -440,6 +657,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (!response.ok && endpointMode === "auto" && !useKaopuGenerations && files.length) {
+      endpoint = "chat/completions";
+      response = await requestImageGeneration({
+        apiKey,
+        baseUrl,
+        endpoint,
+        body: await createChatCompletionsBody({
+          prompt: finalPrompt,
+          files,
+          model
+        })
+      });
+      parsed = await parseResponseBody(response);
+      data = parsed.json;
+    }
+
     if (!response.ok) {
       return NextResponse.json(
         {
@@ -457,11 +690,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const images =
+      endpoint === "chat/completions"
+        ? normalizeChatCompletionImages(data)
+        : normalizeImages(data);
+
+    if (!images.length) {
+      return NextResponse.json(
+        {
+          error:
+            endpoint === "chat/completions"
+              ? "The chat-completions relay returned successfully, but no image URL or base64 image was found in the response."
+              : "The image API returned successfully, but no generated image was found in the response.",
+          diagnostics: createDiagnostics({
+            endpoint,
+            model,
+            baseUrl,
+            imageCount: files.length,
+            status: response.status,
+            text: parsed.text
+          }),
+          raw: data
+        },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({
-      images: normalizeImages(data),
+      images,
       model,
       size,
       quality,
+      endpoint,
       raw: data
     });
   } catch (error) {
