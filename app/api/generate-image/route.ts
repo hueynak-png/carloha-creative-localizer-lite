@@ -28,6 +28,14 @@ type ParsedResponseBody = {
 
 type ImageApiEndpoint = "generations" | "edits" | "chat/completions";
 
+type ImageApiAttempt = {
+  label: string;
+  endpoint: ImageApiEndpoint;
+  response: Response;
+  parsed: ParsedResponseBody;
+  data: unknown;
+};
+
 type ImageApiDiagnostics = {
   endpoint: ImageApiEndpoint;
   model: string;
@@ -431,28 +439,122 @@ async function createKaopuGenerationsBody({
   files,
   model,
   size,
-  quality
+  quality,
+  responseFormat
 }: {
   prompt: string;
   files: File[];
   model: string;
   size: string;
   quality: string;
+  responseFormat?: "url";
 }) {
   const images: string[] = [];
   for (const file of files.slice(0, 8)) {
     images.push(await fileToBase64(file));
   }
 
-  return JSON.stringify({
+  const payload: Record<string, unknown> = {
     model,
     prompt,
     image: images,
     size,
     quality,
-    n: 1,
-    response_format: "url"
+    n: 1
+  };
+  if (responseFormat) {
+    payload.response_format = responseFormat;
+  }
+
+  return JSON.stringify(payload);
+}
+
+async function requestAndParseImageGeneration({
+  apiKey,
+  baseUrl,
+  endpoint,
+  body,
+  label
+}: {
+  apiKey: string;
+  baseUrl: string;
+  endpoint: ImageApiEndpoint;
+  body: BodyInit;
+  label: string;
+}): Promise<ImageApiAttempt> {
+  const response = await requestImageGeneration({
+    apiKey,
+    baseUrl,
+    endpoint,
+    body
   });
+  const parsed = await parseResponseBody(response);
+  return {
+    label,
+    endpoint,
+    response,
+    parsed,
+    data: parsed.json
+  };
+}
+
+async function requestKaopuDualGenerations({
+  apiKey,
+  baseUrl,
+  prompt,
+  files,
+  model,
+  size,
+  quality
+}: {
+  apiKey: string;
+  baseUrl: string;
+  prompt: string;
+  files: File[];
+  model: string;
+  size: string;
+  quality: string;
+}) {
+  const [urlBody, base64Body] = await Promise.all([
+    createKaopuGenerationsBody({
+      prompt,
+      files,
+      model,
+      size,
+      quality,
+      responseFormat: "url"
+    }),
+    createKaopuGenerationsBody({
+      prompt,
+      files,
+      model,
+      size,
+      quality
+    })
+  ]);
+
+  const attempts = await Promise.all([
+    requestAndParseImageGeneration({
+      apiKey,
+      baseUrl,
+      endpoint: "generations",
+      body: urlBody,
+      label: "kaopu_url"
+    }),
+    requestAndParseImageGeneration({
+      apiKey,
+      baseUrl,
+      endpoint: "generations",
+      body: base64Body,
+      label: "kaopu_base64"
+    })
+  ]);
+
+  return (
+    attempts.find((attempt) => attempt.response.ok && normalizeImages(attempt.data).length > 0) ??
+    attempts.find((attempt) => attempt.response.ok) ??
+    attempts[0]
+  );
 }
 
 async function createChatCompletionsBody({
@@ -581,6 +683,8 @@ export async function POST(request: NextRequest) {
     };
 
     let response: Response;
+    let parsed: ParsedResponseBody | null = null;
+    let data: unknown = null;
     let endpoint: ImageApiEndpoint =
       endpointMode === "chat_completions"
         ? "chat/completions"
@@ -599,18 +703,19 @@ export async function POST(request: NextRequest) {
         })
       });
     } else if (useKaopuGenerations) {
-      response = await requestImageGeneration({
+      const kaopuAttempt = await requestKaopuDualGenerations({
         apiKey,
         baseUrl,
-        endpoint: "generations",
-        body: await createKaopuGenerationsBody({
-          prompt: finalPrompt,
-          files,
-          model,
-          size,
-          quality
-        })
+        prompt: finalPrompt,
+        files,
+        model,
+        size,
+        quality
       });
+      endpoint = kaopuAttempt.endpoint;
+      response = kaopuAttempt.response;
+      parsed = kaopuAttempt.parsed;
+      data = kaopuAttempt.data;
     } else if (files.length) {
       response = await requestImageGeneration({
         apiKey,
@@ -633,8 +738,10 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify(body)
       });
     }
-    let parsed = await parseResponseBody(response);
-    let data = parsed.json;
+    if (!parsed) {
+      parsed = await parseResponseBody(response);
+      data = parsed.json;
+    }
 
     if (!response.ok && response.status === 400) {
       if (endpointMode !== "chat_completions" && !useKaopuGenerations && files.length) {
