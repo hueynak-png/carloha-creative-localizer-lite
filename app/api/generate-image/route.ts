@@ -533,7 +533,8 @@ async function requestImageGeneration({
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const headers: HeadersInit = {
-    Authorization: `Bearer ${apiKey}`
+    Authorization: `Bearer ${apiKey}`,
+    Accept: "application/json"
   };
   if (typeof body === "string") {
     headers["Content-Type"] = "application/json";
@@ -732,6 +733,12 @@ async function requestKaopuDualGenerations({
     urlAttempt.response.status === 429 ||
     (urlAttempt.response.ok && normalizeImages(urlAttempt.data).length > 0)
   ) {
+    return urlAttempt;
+  }
+
+  // If first attempt returned HTML, skip second attempt (same issue will repeat)
+  const firstIsHtml = !urlAttempt.data && urlAttempt.parsed.text.trimStart().startsWith("<");
+  if (firstIsHtml) {
     return urlAttempt;
   }
 
@@ -985,6 +992,30 @@ export async function POST(request: NextRequest) {
     if (!parsed) {
       parsed = await parseResponseBody(response);
       data = parsed.json;
+    }
+
+    // Detect HTML response (upstream returned a webpage instead of JSON)
+    const isHtmlResponse = !data && parsed.text.trimStart().startsWith("<");
+    if (isHtmlResponse && endpoint !== "chat/completions" && files.length) {
+      // Fallback to chat/completions which may handle the request differently
+      endpoint = "chat/completions";
+      response = await requestImageGeneration({
+        apiKey,
+        baseUrl,
+        endpoint,
+        body: await createChatCompletionsBody({
+          prompt: finalPrompt,
+          files,
+          model
+        })
+      });
+      parsed = await parseResponseBody(response);
+      data = parsed.json;
+    } else if (isHtmlResponse) {
+      return NextResponse.json(
+        { error: "The upstream image API returned an HTML page instead of JSON. This usually means the API endpoint is unreachable, the request payload is too large, or the API key lacks permission for this model. Please verify your KAOPU_IMAGE_BASE_URL and API key configuration." },
+        { status: 502 }
+      );
     }
 
     if (!response.ok && response.status === 400) {
