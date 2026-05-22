@@ -45,7 +45,7 @@ function isApiEnabled() {
 function getOpenAIImageConfig() {
   const apiKey = process.env.OPENAI_API_KEY;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
+  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
   const size = process.env.OPENAI_IMAGE_SIZE || "1024x1024";
   const quality = process.env.OPENAI_IMAGE_QUALITY || "auto";
 
@@ -77,7 +77,7 @@ function getConfigError(model: string) {
 
   return [
     `OPENAI_IMAGE_MODEL is set to "${model}", which looks like a chat/code model instead of an image model.`,
-    "Use an image-capable model such as gpt-image-1.5, gpt-image-1, or the exact image model name required by your relay."
+    "Use an image-capable model such as gpt-image-2, or the exact image model name required by your relay."
   ].join(" ");
 }
 
