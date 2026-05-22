@@ -250,8 +250,24 @@ function normalizeImages(data: unknown) {
   if (!data || typeof data !== "object") return [];
 
   const response = data as {
-    data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+    data?: Array<{
+      b64_json?: string;
+      url?: string;
+      revised_prompt?: string;
+      image_url?: string | { url?: string };
+      base64?: string;
+      image_base64?: string;
+      output?: string;
+    }> | string;
   };
+
+  if (typeof response.data === "string") {
+    return stringToImageUrls(response.data).map((url, index) => ({
+      id: `api-image-${Date.now()}-${index}`,
+      url,
+      revisedPrompt: null
+    }));
+  }
 
   const openAIStyleImages = (response.data ?? [])
     .map((item, index) => {
@@ -268,6 +284,44 @@ function normalizeImages(data: unknown) {
           url: item.url,
           revisedPrompt: item.revised_prompt ?? null
         };
+      }
+      if (item.base64) {
+        return {
+          id: `api-image-${Date.now()}-${index}`,
+          url: `data:image/png;base64,${stripDataUrl(item.base64)}`,
+          revisedPrompt: item.revised_prompt ?? null
+        };
+      }
+      if (item.image_base64) {
+        return {
+          id: `api-image-${Date.now()}-${index}`,
+          url: `data:image/png;base64,${stripDataUrl(item.image_base64)}`,
+          revisedPrompt: item.revised_prompt ?? null
+        };
+      }
+      if (typeof item.image_url === "string") {
+        return {
+          id: `api-image-${Date.now()}-${index}`,
+          url: item.image_url,
+          revisedPrompt: item.revised_prompt ?? null
+        };
+      }
+      if (item.image_url?.url) {
+        return {
+          id: `api-image-${Date.now()}-${index}`,
+          url: item.image_url.url,
+          revisedPrompt: item.revised_prompt ?? null
+        };
+      }
+      if (item.output) {
+        const [url] = stringToImageUrls(item.output);
+        if (url) {
+          return {
+            id: `api-image-${Date.now()}-${index}`,
+            url,
+            revisedPrompt: item.revised_prompt ?? null
+          };
+        }
       }
       return null;
     })
@@ -294,6 +348,11 @@ function looksLikeBase64Image(value: string) {
 }
 
 function collectImageUrls(value: unknown, urls: Set<string>) {
+  if (typeof value === "string") {
+    stringToImageUrls(value).forEach((url) => urls.add(url));
+    return;
+  }
+
   if (Array.isArray(value)) {
     value.forEach((item) => collectImageUrls(item, urls));
     return;
@@ -303,7 +362,7 @@ function collectImageUrls(value: unknown, urls: Set<string>) {
 
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     if (typeof item === "string") {
-      if ((key === "url" || key === "image_url") && item) {
+      if ((key === "url" || key === "image_url" || key === "image") && item) {
         urls.add(item);
         continue;
       }
@@ -317,6 +376,36 @@ function collectImageUrls(value: unknown, urls: Set<string>) {
     }
     collectImageUrls(item, urls);
   }
+}
+
+function stringToImageUrls(value: string) {
+  if (value.startsWith("data:image/")) return [value];
+  if (/^https?:\/\//.test(value)) return [value];
+  if (looksLikeBase64Image(value)) return [`data:image/png;base64,${stripDataUrl(value)}`];
+  return extractImageUrlsFromText(value);
+}
+
+function summarizeResponseShape(value: unknown, depth = 0): unknown {
+  if (depth > 3) return "[depth-limit]";
+  if (Array.isArray(value)) {
+    return value.slice(0, 3).map((item) => summarizeResponseShape(item, depth + 1));
+  }
+  if (!value || typeof value !== "object") {
+    if (typeof value === "string") {
+      return value.startsWith("data:image/")
+        ? `[data-image length=${value.length}]`
+        : value.length > 160
+          ? `${value.slice(0, 160)}... [length=${value.length}]`
+          : value;
+    }
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .slice(0, 20)
+      .map(([key, item]) => [key, summarizeResponseShape(item, depth + 1)])
+  );
 }
 
 function extractImageUrlsFromText(text: string) {
@@ -897,6 +986,7 @@ export async function POST(request: NextRequest) {
             status: response.status,
             text: parsed.text
           }),
+          responseShape: summarizeResponseShape(data),
           raw: data
         },
         { status: 502 }
