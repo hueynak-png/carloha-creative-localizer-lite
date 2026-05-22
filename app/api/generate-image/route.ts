@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 type LogoAssetPayload = {
   label?: string;
@@ -357,7 +357,7 @@ async function requestImageGeneration({
   baseUrl,
   body,
   endpoint = "generations",
-  timeoutMs = 55000
+  timeoutMs = Number(process.env.IMAGE_API_TIMEOUT_MS || 180000)
 }: {
   apiKey: string;
   baseUrl: string;
