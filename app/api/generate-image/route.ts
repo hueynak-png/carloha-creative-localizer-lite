@@ -7,6 +7,7 @@ export const maxDuration = 300;
 // --- Simple in-memory rate limiter ---
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 10; // max requests per window per IP
+const RATE_LIMIT_CLEANUP_THRESHOLD = 500;
 const rateLimitMap = new Map<string, number[]>();
 
 function isRateLimited(ip: string): boolean {
@@ -19,17 +20,17 @@ function isRateLimited(ip: string): boolean {
   }
   recent.push(now);
   rateLimitMap.set(ip, recent);
+
+  // lazy cleanup: purge stale entries when the map grows above threshold
+  if (rateLimitMap.size > RATE_LIMIT_CLEANUP_THRESHOLD) {
+    rateLimitMap.forEach((ts, key) => {
+      const valid = ts.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+      if (valid.length === 0) rateLimitMap.delete(key);
+      else rateLimitMap.set(key, valid);
+    });
+  }
   return false;
 }
-// Periodically clean up stale entries (every 5 minutes)
-setInterval(() => {
-  const now = Date.now();
-  rateLimitMap.forEach((timestamps, ip) => {
-    const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
-    if (recent.length === 0) rateLimitMap.delete(ip);
-    else rateLimitMap.set(ip, recent);
-  });
-}, 300_000);
 
 type LogoAssetPayload = {
   label?: string;
@@ -95,6 +96,17 @@ function getOpenAIImageConfig() {
   const quality = process.env.OPENAI_IMAGE_QUALITY || "high";
 
   return { apiKey, baseUrl, model, size, quality };
+}
+
+const RATIO_TO_SIZE: Record<string, string> = {
+  "1:1": "1024x1024",
+  "3:4": "1024x1536",
+  "9:16": "1024x1792",
+  "16:9": "1792x1024"
+};
+
+function sizeFromRatio(ratio: string, fallback: string): string {
+  return RATIO_TO_SIZE[ratio] || fallback;
 }
 
 function getEndpointMode() {
@@ -617,15 +629,9 @@ async function createKaopuGenerationsBody({
   quality: string;
   responseFormat?: "url";
 }) {
-  const images: string[] = [];
-  for (const file of files.slice(0, 8)) {
-    images.push(await fileToBase64(file));
-  }
-
   const payload: Record<string, unknown> = {
     model,
     prompt,
-    image: images,
     size
   };
   if (responseFormat) {
@@ -836,7 +842,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { apiKey, baseUrl, model, size, quality } = getOpenAIImageConfig();
+    const { apiKey, baseUrl, model, quality } = getOpenAIImageConfig();
+    let size = process.env.OPENAI_IMAGE_SIZE || "1024x1024";
     const endpointMode = getEndpointMode();
     const useKaopuGenerations =
       endpointMode === "kaopu_generations" || (endpointMode === "auto" && isKaopuImageApi(baseUrl));
@@ -849,6 +856,7 @@ export async function POST(request: NextRequest) {
 
     const contentType = request.headers.get("content-type") ?? "";
     let prompt = "";
+    let posterRatio = "";
     let logoAssets: LogoAssetPayload[] = [];
     let imageManifest: ImageReferenceManifestItem[] = [];
     let files: File[] = [];
@@ -856,6 +864,7 @@ export async function POST(request: NextRequest) {
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
       prompt = String(formData.get("prompt") ?? "");
+      posterRatio = String(formData.get("posterRatio") ?? "");
       logoAssets = JSON.parse(String(formData.get("logoAssets") ?? "[]")) as LogoAssetPayload[];
       imageManifest = JSON.parse(String(formData.get("imageManifest") ?? "[]")) as ImageReferenceManifestItem[];
       files = formData
@@ -886,6 +895,8 @@ export async function POST(request: NextRequest) {
       prompt = payload.prompt ?? "";
       logoAssets = payload.logoAssets ?? [];
     }
+
+    size = sizeFromRatio(posterRatio ?? "", size);
 
     if (!prompt.trim()) {
       return NextResponse.json({ error: "Prompt is required." }, { status: 400 });

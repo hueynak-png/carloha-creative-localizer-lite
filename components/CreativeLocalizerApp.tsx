@@ -6,7 +6,6 @@ import {
   Copy,
   Download,
   FileImage,
-  Home,
   ImagePlus,
   Loader2,
   RefreshCcw,
@@ -531,14 +530,12 @@ export function CreativeLocalizerApp() {
       const savedLanguage = window.localStorage.getItem("carloha-localizer-language");
       if (savedLanguage === "en" || savedLanguage === "zh") {
         setLanguage(savedLanguage);
-        document.documentElement.lang = savedLanguage === "zh" ? "zh-CN" : "en";
       }
     } catch { /* localStorage unavailable */ }
   }, []);
 
   function changeLanguage(nextLanguage: Language) {
     setLanguage(nextLanguage);
-    document.documentElement.lang = nextLanguage === "zh" ? "zh-CN" : "en";
     try {
       window.localStorage.setItem("carloha-localizer-language", nextLanguage);
     } catch { /* localStorage unavailable */ }
@@ -898,6 +895,7 @@ function ResultView({
       const formData = new FormData();
       const imageManifest: Array<{ label: string; role: string; fileName: string }> = [];
       formData.append("prompt", prompt);
+      formData.append("posterRatio", settings.posterRatio);
       formData.append(
         "logoAssets",
         JSON.stringify(
