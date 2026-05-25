@@ -895,7 +895,7 @@ function ResultView({
       const formData = new FormData();
       const imageManifest: Array<{ label: string; role: string; fileName: string }> = [];
       formData.append("prompt", prompt);
-      formData.append("posterRatio", settings.posterRatio);
+      formData.append("posterRatio", task.formSettings.posterRatio ?? "9:16");
       formData.append(
         "logoAssets",
         JSON.stringify(
